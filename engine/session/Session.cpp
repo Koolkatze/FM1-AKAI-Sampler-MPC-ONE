@@ -199,6 +199,8 @@ struct Session::Impl {
     bool seqEnabled = true;
     double seqPhase = 0.;
     float seqPitchSemis = 0.f, seqPitchCents = 0.f, pitchedTempo = 1.f;
+    bool tempoFlexOverride = false;
+    float tempoFlexReference = 120.f;
     std::atomic<int> a_seqStep{0}, a_seqBeats{4};
     std::atomic<bool> a_seqEnabled{true};
     Reverb reverb; TapeDelay delay;
@@ -387,8 +389,12 @@ struct Session::Impl {
         }
         loopSamples = saved.samples; a_loop = loopSamples;
         loopBars = saved.bars; a_bars = loopBars;
-        bpm = saved.tempo; a_bpm = bpm;
+        bpm = tempoFlexOverride ? tempoFlexReference : saved.tempo;
+        a_bpm = bpm * pitchedTempo;
         pos = saved.pos; tapePos = saved.tapePos; rate = saved.rate;
+        seqPhase = std::fmod(std::max(0., pos) * bpm * 4.0 / (60.0 * sr),
+                             (double)(seqBeats * 4));
+        seqLastStep = -1;
         playing = saved.playing; stopping = saved.stopping;
         activeScene = -1; a_activeScene = -1;
         scrubActive = scrubTail = false;
@@ -410,7 +416,9 @@ struct Session::Impl {
         }
         loopSamples = sc.samples; a_loop = loopSamples;
         loopBars = sc.bars; a_bars = loopBars;
-        bpm = sc.tempo; a_bpm = bpm;
+        bpm = tempoFlexOverride ? tempoFlexReference : sc.tempo;
+        a_bpm = bpm * pitchedTempo;
+        seqPhase = 0.; seqLastStep = -1;
         activeScene = slot; pendingScene = -1; a_activeScene = slot; a_queuedScene = -1;
         pos = tapePos = 0.0;
         playing = true; stopping = false; rate = 1.0;
@@ -455,7 +463,12 @@ struct Session::Impl {
         scrubActive = scrubTail = false; freeBuf.clear();
         const auto& c = s.current;
         loopSamples = c.samples; loopBars = c.bars; bpm = c.tempo;
+        tempoFlexOverride = false;
+        tempoFlexReference = bpm;
         pos = c.pos; tapePos = c.tapePos; rate = c.rate;
+        seqPhase = std::fmod(std::max(0., pos) * bpm * 4.0 / (60.0 * sr),
+                             (double)(seqBeats * 4));
+        seqLastStep = -1;
         playing = c.playing; stopping = c.stopping;
         for (int t = 0; t < kTracks; ++t) {
             auto& tr = *tracks[(size_t)t];
@@ -491,7 +504,7 @@ struct Session::Impl {
         pendingAt = s.pendingAt; songPlaying = s.songPlaying; songStep = s.songStep;
         sceneFadeFrames = std::max(1, sr / 180);
         updateSceneMask();
-        a_loop = loopSamples; a_bars = loopBars; a_bpm = bpm;
+        a_loop = loopSamples; a_bars = loopBars; a_bpm = bpm * pitchedTempo;
         a_activeScene = activeScene; a_queuedScene = pendingScene;
         a_arrangementLoaded = true;
         projectRestored = true; // asynchronous startup scene restore must not overwrite it
@@ -638,7 +651,11 @@ struct Session::Impl {
         float nb = (float)(n * 240.0 * sr / len);
         while (nb > 300.f && n > 1) { n--; nb = (float)(n * 240.0 * sr / len); }
         while (nb < 30.f && n < 32) { n++; nb = (float)(n * 240.0 * sr / len); }
-        bpm = std::min(300.f, std::max(30.f, nb)); a_bpm = bpm; loopBars = n; a_bars = n;
+        bpm = std::min(300.f, std::max(30.f, nb));
+        if (tempoFlexOverride) bpm = tempoFlexReference;
+        a_bpm = bpm * pitchedTempo;
+        loopBars = n; a_bars = n;
+        seqPhase = 0.; seqLastStep = -1;
         loopSamples = (int32_t)std::lround(len); a_loop = loopSamples;
         Track& ft = *tracks[freeTrack];
         if (!freeBuf.empty()) { freeBuf.resize((size_t)loopSamples * 2, 0.f); ft.clip = std::make_shared<std::vector<float>>(std::move(freeBuf)); ft.clipHas = true; }
@@ -829,7 +846,7 @@ struct Session::Impl {
             }
             // Every binary duration has a triplet alternative (two thirds
             // of the straight note): 1/4T is 1/6 of a 4/4 bar.
-            const double straight = (240.0 * sr / std::max(1.f, bpm))
+            const double straight = (240.0 * sr / std::max(1.f, bpm * pitchedTempo))
                                   / (double)(1 << (cueDivision / 2));
             const double length = std::max(1.0, std::min((double)loopSamples,
                 straight * ((cueDivision & 1) ? 2.0 / 3.0 : 1.0)));
@@ -875,7 +892,7 @@ struct Session::Impl {
             evs.clear();
             for (auto& nt : t.pending) evs.push_back({0, nt.note, nt.vel});
             t.pending.clear();
-            if (t.arpOn) t.arp.run(n, bpm, sr, evs);
+            if (t.arpOn) t.arp.run(n, bpm * pitchedTempo, sr, evs);
             std::stable_sort(evs.begin(), evs.end(), [](const Arp::Ev& a, const Arp::Ev& b) { return a.offset < b.offset; });
             if (t.sampler) {
                 t.sampler->setBend(bend + seqPitchSemis + seqPitchCents / 100.f);
@@ -1125,7 +1142,12 @@ void Session::clearSequencerSample(int track) {
 void Session::setMasterBpm(float value) {
     if (!std::isfinite(value)) return;
     value = std::max(30.f, std::min(300.f, value));
-    d->post([this, value] { d->bpm = value; d->a_bpm = value * d->pitchedTempo; });
+    d->post([this, value] {
+        d->tempoFlexOverride = true;
+        d->tempoFlexReference = value;
+        d->bpm = value;
+        d->a_bpm = value * d->pitchedTempo;
+    });
 }
 void Session::setGlobalPitch(float semis, float cents) {
     if (!std::isfinite(semis) || !std::isfinite(cents)) return;
@@ -1266,6 +1288,9 @@ void Session::seek(float f) {
         if (d->loopSamples <= 0 || d->freeRec) return;
         const double p = clampf(f, 0.f, 0.9999f) * d->loopSamples;
         d->pos = p; d->tapePos = p;
+        d->seqPhase = std::fmod(p * d->bpm * 4.0 / (60.0 * d->sr),
+                                 (double)(d->seqBeats * 4));
+        d->seqLastStep = -1;
     });
 }
 void Session::setCue(bool on, int division) {
