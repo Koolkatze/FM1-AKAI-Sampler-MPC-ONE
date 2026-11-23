@@ -651,8 +651,11 @@ struct Session::Impl {
         float nb = (float)(n * 240.0 * sr / len);
         while (nb > 300.f && n > 1) { n--; nb = (float)(n * 240.0 * sr / len); }
         while (nb < 30.f && n < 32) { n++; nb = (float)(n * 240.0 * sr / len); }
+        // A first free take establishes its own measured clip tempo.
+        // Do not force the previous panel BPM onto an unquantized recording.
         bpm = std::min(300.f, std::max(30.f, nb));
-        if (tempoFlexOverride) bpm = tempoFlexReference;
+        tempoFlexOverride = false;
+        tempoFlexReference = bpm;
         a_bpm = bpm * pitchedTempo;
         loopBars = n; a_bars = n;
         seqPhase = 0.; seqLastStep = -1;
