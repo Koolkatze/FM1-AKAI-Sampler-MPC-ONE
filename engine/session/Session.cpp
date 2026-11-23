@@ -1092,6 +1092,19 @@ void Session::setSeqStep(int lane, int step, int note, int velocity) {
         d->seqNote[(size_t)lane][(size_t)step] = (uint8_t)note;
     });
 }
+void Session::replaceSeqPattern(const SeqGrid& notes, const SeqGrid& velocities) {
+    d->post([this, notes, velocities] {
+        d->seqNote = notes;
+        d->seqVel = velocities;
+    });
+}
+void Session::clearSeqSample(int lane) {
+    if (lane < 0 || lane >= kSeqTracks) return;
+    d->post([this, lane] {
+        auto& instrument = d->seqLanes[(size_t)lane].sampler;
+        d->bury(std::move(instrument));
+    });
+}
 void Session::setSeqEnabled(bool on) {
     d->post([this, on] { d->seqEnabled = on; d->a_seqEnabled = on; });
 }
