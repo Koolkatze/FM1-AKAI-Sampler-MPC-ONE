@@ -1032,7 +1032,8 @@ struct Session::Impl {
             if (t.arpOn) t.arp.run(n, bpm * pitchedTempo, sr, evs);
             std::stable_sort(evs.begin(), evs.end(), [](const Arp::Ev& a, const Arp::Ev& b) { return a.offset < b.offset; });
             if (t.sampler) {
-                t.sampler->setBend(bend + seqPitchSemis + seqPitchCents / 100.f);
+                t.sampler->setBend(bend + seqPitchSemis + seqPitchCents / 100.f
+                    + 12.f * std::log2(std::max(.25f, pitchedTempo)));
                 int cur = 0;
                 for (auto& e : evs) {
                     const int off = std::min(n, std::max(cur, e.offset));
