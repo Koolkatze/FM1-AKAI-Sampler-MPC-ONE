@@ -1038,6 +1038,15 @@ int main() {
         CHECK(std::fabs(shiftedHz - 440.f) < 45.f &&
               std::fabs(flex.status().bpm - heldBpm) < .1f,
               "semitone pitch changes sample pitch, not project BPM (%.1f Hz)", shiftedHz);
+        // A 64/4 pattern must keep advancing across repeated shorter
+        // recorded loops rather than resetting to step zero on each wrap.
+        flex.setSequencerBeats(64);
+        flex.seek(0.f);
+        for (int k = 0; k < (int)(3.0 * SAMPLERATE / 256); ++k)
+            flex.process(y.data(), x.data(), 256);
+        CHECK(flex.status().seqStep >= 30 && flex.status().seqStep <= 63,
+              "64/4 sequencer advances across three shorter loop cycles (step %d)",
+              flex.status().seqStep);
     }
     {   // sidechain: track 2 ducked by track 1, send effects return something
         app.loopClear(); run(0.3);
