@@ -173,6 +173,7 @@ struct Session::Impl {
         bool songPlaying = false;
         std::vector<uint8_t> appState;
         std::array<std::string, kTracks> samplePaths;
+        std::array<std::string, Session::kSeqTracks> seqSamplePaths;
     };
     // Only a few primitive settings and shared immutable clip references are
     // copied on the real-time thread. No DSP delay buffers or large WAVs.
@@ -387,10 +388,12 @@ struct Session::Impl {
     }
 
     ProjectSnapshot captureProject(std::vector<uint8_t> app,
-                                   std::array<std::string, kTracks> paths) {
+                                   std::array<std::string, kTracks> paths,
+                                   std::array<std::string, Session::kSeqTracks> seqPaths) {
         ProjectSnapshot s;
         s.appState = std::move(app);
         s.samplePaths = std::move(paths);
+        s.seqSamplePaths = std::move(seqPaths);
         s.savedScenes = scenes; s.arrangement = songOrder;
         s.active = activeScene; s.queued = pendingScene;
         s.songPlaying = songPlaying; s.songStep = songStep; s.pendingAt = pendingAt;
@@ -1666,7 +1669,7 @@ int Session::loopPeaks(int track, float* out, int maxBins) const {
 // Snapshots are captured at one audio callback and written asynchronously.
 namespace {
 constexpr uint32_t kProjectMagic = 0x32504d46;  // FMP2
-constexpr uint32_t kProjectVersion = 2;
+constexpr uint32_t kProjectVersion = 3; // v2 legacy archives remain readable
 constexpr uint64_t kProjectMaxBytes = 536870912ULL; // 512 MiB decompressed
 constexpr uint32_t kSampleMax = 67108864U; // 64 MiB per WAV
 std::string projectPath(const std::string& dir, int slot) {
@@ -1774,6 +1777,27 @@ bool writeProjectFile(const std::string& dir, int slot, const Session::Impl::Pro
             left -= (uint32_t)n;
         }
     }
+    // FMP2 v3 adds eight dedicated sequence instrument WAVs. Legacy v2
+    // archives had only the looper's eight samples and remain readable.
+    for (int i = 0; i < Session::kSeqTracks && ok; ++i) {
+        const auto& src = s.seqSamplePaths[(size_t)i];
+        uint32_t size = 0;
+        if (!src.empty()) {
+            const auto n = fs::file_size(src, ec);
+            if (ec || n == 0 || n > kSampleMax) { ok = false; break; }
+            size = (uint32_t)n;
+        }
+        ok = w.value(size);
+        if (!ok || !size) continue;
+        std::ifstream input(src, std::ios::binary);
+        if (!input) { ok = false; break; }
+        for (uint32_t left = size; left && ok;) {
+            const auto n = (size_t)std::min<uint32_t>(left, (uint32_t)chunk.size());
+            input.read((char*)chunk.data(), (std::streamsize)n);
+            ok = !!input && w.put(chunk.data(), n);
+            left -= (uint32_t)n;
+        }
+    }
     ok = ok && validTimeline(s.current.samples, s.current.bars, s.current.tempo,
                              s.current.pos, s.current.tapePos, s.current.rate, sr)
           && writeTimeline(w, s.current);
@@ -1826,11 +1850,12 @@ bool writeProjectFile(const std::string& dir, int slot, const Session::Impl::Pro
     return true;
 }
 bool readProjectFile(const std::string& file, Session::Impl::ProjectSnapshot& snap,
-                     std::array<std::vector<uint8_t>, Session::kTracks>& assets, int sr) {
+                     std::array<std::vector<uint8_t>, Session::kTracks>& assets,
+                     std::array<std::vector<uint8_t>, Session::kSeqTracks>& seqAssets, int sr) {
     ProjectRead r(file);
     uint32_t magic = 0, ver = 0, rate = 0, metaLen = 0;
     if (!r.value(magic) || !r.value(ver) || !r.value(rate) || !r.value(metaLen) ||
-        magic != kProjectMagic || ver != kProjectVersion ||
+        magic != kProjectMagic || (ver != 2 && ver != kProjectVersion) ||
         rate != (uint32_t)sr || metaLen == 0 || metaLen > 65536) return false;
     snap.appState.resize(metaLen);
     if (!r.get(snap.appState.data(), metaLen)) return false;
@@ -1839,6 +1864,14 @@ bool readProjectFile(const std::string& file, Session::Impl::ProjectSnapshot& sn
         if (!r.value(len) || len > kSampleMax) return false;
         asset.resize(len);
         if (len && !r.get(asset.data(), len)) return false;
+    }
+    if (ver >= 3) {
+        for (auto& asset : seqAssets) {
+            uint32_t len = 0;
+            if (!r.value(len) || len > kSampleMax) return false;
+            asset.resize(len);
+            if (len && !r.get(asset.data(), len)) return false;
+        }
     }
     if (!readTimeline(r, snap.current, sr)) return false;
     uint8_t compose = 0;
@@ -1896,7 +1929,8 @@ bool Session::projectExists(int slot) const {
 }
 int Session::projectOperation() const { return d->projectOp.load(); }
 bool Session::saveProject(int slot, std::vector<uint8_t> meta,
-                          const std::array<std::string, kTracks>& paths) {
+                          const std::array<std::string, kTracks>& paths,
+                          const std::array<std::string, kSeqTracks>& seqPaths) {
     if (slot < 0 || slot >= kProjectSlots || d->dataDir.empty() ||
         meta.empty() || meta.size() > 65536) return false;
     int state = d->projectOp.load();
@@ -1904,12 +1938,12 @@ bool Session::saveProject(int slot, std::vector<uint8_t> meta,
         if (d->projectOp.compare_exchange_weak(state, 1)) break;
     }
     if (d->projectOp.load() != 1 || state == 1 || state == 3) return false;
-    d->post([this, slot, meta = std::move(meta), paths]() mutable {
+    d->post([this, slot, meta = std::move(meta), paths, seqPaths]() mutable {
         if (d->freeRec || d->freeArmed || d->sampling || d->armedWait) {
             d->projectOp = -1; return;
         }
         for (const auto& t : d->tracks) if (t->clipRec) { d->projectOp = -1; return; }
-        auto snapshot = d->captureProject(std::move(meta), paths);
+        auto snapshot = d->captureProject(std::move(meta), paths, seqPaths);
         const auto folder = d->dataDir;
         const int rate = d->sr;
         d->job([this, slot, folder, rate, snapshot = std::move(snapshot)]() mutable {
@@ -1929,7 +1963,8 @@ bool Session::loadProject(int slot) {
     d->job([this, slot, folder] {
         Impl::ProjectSnapshot snap;
         std::array<std::vector<uint8_t>, kTracks> assets;
-        const bool valid = readProjectFile(projectPath(folder, slot), snap, assets, d->sr);
+        std::array<std::vector<uint8_t>, kSeqTracks> seqAssets;
+        const bool valid = readProjectFile(projectPath(folder, slot), snap, assets, seqAssets, d->sr);
         if (!valid) { d->projectOp = -2; return; }
         namespace fs = std::filesystem;
         std::error_code ec;
@@ -1958,9 +1993,30 @@ bool Session::loadProject(int slot) {
             if (ec) { d->projectOp = -2; return; }
             paths[(size_t)t] = asset;
         }
+        std::array<std::string, kSeqTracks> seqPaths{};
+        for (int t = 0; t < kSeqTracks; ++t) {
+            const auto& raw = seqAssets[(size_t)t];
+            if (raw.empty()) continue;
+            const auto asset = target + "/seq_track_" + std::to_string(t + 1) + ".wav";
+            const auto temp = asset + ".tmp";
+            std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+            if (!out) { d->projectOp = -2; return; }
+            out.write((const char*)raw.data(), (std::streamsize)raw.size());
+            out.flush();
+            const bool good = !!out; out.close();
+            if (!good) { d->projectOp = -2; return; }
+            fs::rename(temp, asset, ec);
+            if (ec) {
+                fs::remove(asset, ec); ec.clear();
+                fs::rename(temp, asset, ec);
+            }
+            if (ec) { d->projectOp = -2; return; }
+            seqPaths[(size_t)t] = asset;
+        }
         auto result = std::make_shared<LoadedProject>();
         result->slot = slot; result->appState = std::move(snap.appState);
         result->samplePaths = std::move(paths);
+        result->seqSamplePaths = std::move(seqPaths);
         d->post([this, snap = std::move(snap), result]() mutable {
             d->installProject(std::move(snap));
             { std::lock_guard<std::mutex> lock(d->projectMtx); d->projectReady = result; }
