@@ -582,6 +582,33 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
         k[3] = b;
         break;
     }
+    case P_STEP: {
+        const int pages = std::max(1, (seqBeats_ * 4 + 15) / 16);
+        const int selected = std::max(0, std::min(kSeqSteps - 1, seqEditStep_));
+        const auto make = [](const std::string& name, const std::string& value, float norm,
+                             std::function<void(int)> step, std::function<void(float)> set) {
+            Knob b; b.name = name; b.value = value; b.norm = norm; b.valid = true;
+            b.isChoice = true; b.step = std::move(step); b.set = std::move(set);
+            return b;
+        };
+        k[0] = make("STEP PAGE", std::to_string(seqPage_ + 1) + "/" + std::to_string(pages),
+                    pages > 1 ? seqPage_ / (float)(pages - 1) : 0.f,
+                    [this](int d) { setSequencerPage(seqPage_ + (d > 0 ? 1 : -1)); },
+                    [this, pages](float v) { setSequencerPage((int)std::lround(cl(v) * (pages - 1))); });
+        k[1] = make("STEP NOTE", std::to_string((int)seqGrid_[(size_t)seqTrack_][(size_t)selected].note),
+                    seqGrid_[(size_t)seqTrack_][(size_t)selected].note / 127.f,
+                    [this, selected](int d) { sequencerSetStepNote(selected,
+                        (int)seqGrid_[(size_t)seqTrack_][(size_t)selected].note + (d > 0 ? 1 : -1)); },
+                    [this, selected](float v) { sequencerSetStepNote(selected, (int)std::lround(cl(v) * 127)); });
+        k[2] = make("LENGTH /4", std::to_string(seqBeats_) + "/4",
+                    (seqBeats_ - 1) / 63.f,
+                    [this](int d) { setSequencerBeats(seqBeats_ + (d > 0 ? 1 : -1)); },
+                    [this](float v) { setSequencerBeats(1 + (int)std::lround(cl(v) * 63)); });
+        k[3] = make("TEMPO", fmt("%.0f BPM", tempoFlexBpm_), (tempoFlexBpm_ - 30.f) / 270.f,
+                    [this](int d) { setTempoFlexBpm(tempoFlexBpm_ + (d > 0 ? 1.f : -1.f)); },
+                    [this](float v) { setTempoFlexBpm(30.f + cl(v) * 270.f); });
+        break;
+    }
     case P_CUE:
         k[0] = choice("RATE", &cueDivision_,
                       {"1/1", "1/1T", "1/2", "1/2T", "1/4", "1/4T",
@@ -952,6 +979,22 @@ std::string SamplerApp::loopText() const {
 }
 void SamplerApp::keyEvent(int raw, bool down) {   // MIDI scene bank in LOOP mode; ordinary keyboard elsewhere
     if (raw < 0 || raw > 127) return;
+    if (sequencerMode_) {
+        if (!down || raw < 53 || raw > 79) return;
+        // Exactly 27 keys: F3..G5 = 16 white steps and 11 black.
+        // First eight black keys select the sequencer lane.
+        static constexpr int white[] = {53,55,57,59,60,62,64,65,67,69,71,72,74,76,77,79};
+        static constexpr int black[] = {54,56,58,61,63,66,68,70,73,75,78};
+        for (int i = 0; i < 16; ++i) if (raw == white[i]) {
+            sequencerToggleStep(seqPage_ * 16 + i);
+            return;
+        }
+        for (int i = 0; i < 8; ++i) if (raw == black[i]) {
+            selectSequencerTrack(i);
+            return;
+        }
+        return;
+    }
     if (sceneKeys_ && !songMode_) {
         // Ableton labels MIDI 36..47 as C1..B1. Also accept scientific C1
         // (24..35), while the physical FM-1 first 12 keys arrive as 53..64.
@@ -1133,12 +1176,12 @@ void SamplerApp::button(int b, bool down) {
     }
     if (!down) return;
     switch (b) {
-    case HOME: exitPerformanceMode(); page_ = P_HOME; ++homeNavigationSerial_; break;
+    case HOME: if (sequencerMode_) exitSequencer(); else { exitPerformanceMode(); page_ = P_HOME; } ++homeNavigationSerial_; break;
     case FX: page_ = P_FX; break;
     case ENV: page_ = P_ENV; break;
     case LFO: page_ = P_LFO; break;
     case ARP: page_ = P_ARP; break;
-    case SEQ: page_ = P_SEQ; break;
+    case SEQ: if (sequencerMode_) exitSequencer(); else enterSequencer(); break;
     case EDIT: page_ = P_MIX; break;
     case GLO: page_ = P_KEY; break;
     case SEL: page_ = P_LEN; break;
@@ -1148,7 +1191,11 @@ void SamplerApp::button(int b, bool down) {
 }
 void SamplerApp::encoder(int i, int delta) {
     if (!delta) return;
-    if (i == 0) { selectTrack(track_ + (delta > 0 ? 1 : -1)); return; }
+    if (i == 0) {
+        if (sequencerMode_) selectSequencerTrack(seqTrack_ + (delta > 0 ? 1 : -1));
+        else selectTrack(track_ + (delta > 0 ? 1 : -1));
+        return;
+    }
     if (i == 6) { browse(delta); return; }
     // In the open LIBRARY browser K1 navigates directory levels. Other
     // pages retain their existing K1 parameter and OCT+ / CUE behavior.
@@ -1157,7 +1204,7 @@ void SamplerApp::encoder(int i, int delta) {
         else browserBack();
         return;
     }
-    if (i == 1) { setAlgo(ts_[track_].algo + (delta > 0 ? 1 : -1)); return; }
+    if (i == 1) { if (!sequencerMode_) setAlgo(ts_[track_].algo + (delta > 0 ? 1 : -1)); return; }
     // OCT+ makes K1 the CUE subdivision control BEFORE and DURING PLAY.
     // Crucially, microphone threshold or the underlying page never steals K1.
     if (i == 2 && ((held_ & (1u << OCT_UP)) || cueActive_ || page_ == P_CUE)) {
@@ -1308,8 +1355,20 @@ void SamplerApp::heal() {   // a lost frame leaves a hole nothing would redraw: 
 void SamplerApp::leds() {
     uint64_t m = 0;
     const bool blinkFast = (nowMs_ / 250) & 1, blinkSlow = (nowMs_ / 500) & 1;
-    static const int pageBtn[] = {HOME, FX, ENV, LFO, ARP, SEQ, EDIT, GLO, SAVE, SEL};
-    m |= 1ull << pageBtn[page_];
+    static const int pageBtn[] = {HOME, FX, ENV, LFO, ARP, SEQ, EDIT, GLO, SAVE, SEL, SEQ, SEQ};
+    m |= 1ull << pageBtn[std::max(0, std::min((int)page_, (int)kPages - 1))];
+    if (sequencerMode_) {
+        static constexpr int whites[] = {53,55,57,59,60,62,64,65,67,69,71,72,74,76,77,79};
+        static constexpr int blacks[] = {54,56,58,61,63,66,68,70,73,75,78};
+        for (int k = 0; k < 16; ++k) {
+            const int step = seqPage_ * 16 + k;
+            const bool hit = step < seqBeats_ * 4 && seqGrid_[(size_t)seqTrack_][(size_t)step].velocity;
+            const bool cursor = st_.playing && step == st_.seqStep;
+            if (hit || (cursor && blinkFast)) m |= 1ull << (14 + whites[k] - 53);
+        }
+        for (int k = 0; k < 8; ++k)
+            if (k == seqTrack_) m |= 1ull << (14 + blacks[k] - 53);
+    } else {
     if (st_.playing) m |= 1ull << PLAY;
     if (st_.freeRecording || st_.track_clip_rec[track_] || mic_ == 2) { if (blinkFast) m |= 1ull << REC; }
     else if (st_.freeArmed || mic_ == 1) { if (blinkSlow) m |= 1ull << REC; }
@@ -1323,6 +1382,7 @@ void SamplerApp::leds() {
         if (keyCount_[raw]) on = false;
         if (note < 0 || note > 127) on = false;
         if (on) m |= 1ull << (14 + k);
+    }
     }
     if (m == lastLed_ && nowMs_ - ledAt_ < 400) return;
     lastLed_ = m; ledAt_ = nowMs_;
