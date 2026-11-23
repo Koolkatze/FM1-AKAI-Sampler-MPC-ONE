@@ -1284,6 +1284,12 @@ void SamplerApp::button(int b, bool down) {
         }
         return;
     }
+    if (b == SEQ) {
+        if (down) seqButtonDownAt_ = nowMs_;
+        else if (nowMs_ - seqButtonDownAt_ >= 600) setSequencerMode(!seqMode_);
+        else page_ = P_SEQ; // short SEQ still opens the original TAPE page
+        return;
+    }
     if (b == SAVE) {   // only the LOOP page: saving and clearing loops lives in the phone's PROJECT menu
         if (down) page_ = P_SAVE;
         return;
@@ -1295,7 +1301,6 @@ void SamplerApp::button(int b, bool down) {
     case ENV: page_ = P_ENV; break;
     case LFO: page_ = P_LFO; break;
     case ARP: page_ = P_ARP; break;
-    case SEQ: setSequencerMode(!seqMode_); break; // physical SEQ toggles the step editor
     case EDIT: page_ = P_MIX; break;
     case GLO: page_ = P_KEY; break;
     case SEL: page_ = P_LEN; break;
