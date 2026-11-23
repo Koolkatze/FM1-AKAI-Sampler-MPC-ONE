@@ -65,6 +65,7 @@ SamplerApp::SamplerApp(Session& s, Send send) : s_(s), send_(std::move(send)) {
     for (int& h : heldNote_) h = -1;
     for (int i = 0; i < kTracks; i++) { ts_[i].vol = 0.8f; }
     refreshLibrary();
+    initSeqDefaults();
     applyFx();
     s_.setRetLevel(1, 0.7f);
     s_.setLoopSource(loopSrc_);
@@ -289,6 +290,15 @@ std::string SamplerApp::takePackDeletePath() {
 void SamplerApp::loadEntry(int i) {
     if (i < 0 || i >= (int)lib_.size()) return;
     libCursor_ = i; auditionAt_ = 0;
+    if (seqMode_) {
+        const Entry& e = lib_[(size_t)i];
+        seqSamplePaths_[(size_t)seqTrack_] = e.path;
+        seqSampleNames_[(size_t)seqTrack_] = e.label;
+        seqKit_[(size_t)seqTrack_] = e.kit;
+        s_.loadSeqSamplePath(e.path, e.kit, seqTrack_, seqBaseNotes_[(size_t)seqTrack_]);
+        say("SEQUENCER TRACK " + std::to_string(seqTrack_ + 1) + ": " + e.label);
+        return;
+    }
     const Entry& e = lib_[(size_t)i];
     trackSourcePaths_[(size_t)track_] = e.path;
     trackSourceNames_[(size_t)track_] = e.label;
@@ -366,6 +376,100 @@ void SamplerApp::setScale(int scale, int root, int octave, int mode) {
     scale_ = {std::min(7, std::max(0, scale)), ((root % 12) + 12) % 12, std::min(3, std::max(-3, octave)), mode & 1};
     sysex(6, {7, (uint8_t)scale_.root, (uint8_t)(scale_.octave + 3), (uint8_t)scale_.mode}, true);
 }
+// ---- independent 8-lane step sequencer ----
+void SamplerApp::initSeqDefaults() {
+    static const char* names[] = {"KICK", "SNARE", "RIM", "TOM 1", "TOM 2",
+                                  "HIHAT OPEN", "HIHAT CLOSED", "CRASH"};
+    // The existing 707 KIT is a fallback instrument while dedicated one-shots
+    // are selected from the same library. It does not take a looper track.
+    const Entry* kit = nullptr;
+    for (const auto& e : lib_) if (e.group == "Drums" && e.kit) {
+        kit = &e;
+        if (e.label.find("707") != std::string::npos) break;
+    }
+    for (int lane = 0; lane < kTracks; ++lane) {
+        seqSampleNames_[(size_t)lane] = names[lane];
+        for (int st = 0; st < kSeqMaxSteps; ++st) seqNotes_[(size_t)lane][(size_t)st] = (uint8_t)(60 + lane);
+        seqBaseNotes_[(size_t)lane] = 60 + lane;
+        if (kit) {
+            seqSamplePaths_[(size_t)lane] = kit->path;
+            seqKit_[(size_t)lane] = true;
+            s_.loadSeqSamplePath(kit->path, true, lane, 60 + lane);
+        }
+    }
+    s_.setSeqBeats(seqBeats_);
+    s_.setSeqEnabled(true);
+}
+void SamplerApp::setSequencerMode(bool on) {
+    if (seqMode_ == on) return;
+    seqMode_ = on;
+    if (on) {
+        // The scene pads and sequence keys are mutually exclusive, but the
+        // actual scene/looper playback continues unchanged.
+        sceneKeys_ = false;
+    }
+    needClear_ = true;
+}
+void SamplerApp::selectSeqTrack(int t) { seqTrack_ = (t % kTracks + kTracks) % kTracks; }
+void SamplerApp::setSeqBeats(int n) {
+    seqBeats_ = std::clamp(n, 1, 64);
+    seqBank_ = std::min(seqBank_, (seqBeats_ * 4 - 1) / 16);
+    s_.setSeqBeats(seqBeats_);
+}
+void SamplerApp::moveSeqBank(int d) {
+    seqBank_ = std::clamp(seqBank_ + (d > 0 ? 1 : -1), 0, (seqBeats_ * 4 - 1) / 16);
+}
+bool SamplerApp::seqStep(int lane, int index) const {
+    return lane >= 0 && lane < kTracks && index >= 0 && index < seqBeats_ * 4
+        && seqVel_[(size_t)lane][(size_t)index] != 0;
+}
+int SamplerApp::seqStepNote(int lane, int index) const {
+    return lane >= 0 && lane < kTracks && index >= 0 && index < kSeqMaxSteps
+        ? seqNotes_[(size_t)lane][(size_t)index] : 60;
+}
+void SamplerApp::toggleSeqStep(int lane, int index) {
+    if (lane < 0 || lane >= kTracks || index < 0 || index >= seqBeats_ * 4) return;
+    auto& v = seqVel_[(size_t)lane][(size_t)index];
+    v = v ? 0 : 104;
+    s_.setSeqStep(lane, index, seqNotes_[(size_t)lane][(size_t)index], v);
+}
+void SamplerApp::adjustSeqNote(int delta) {
+    int& note = seqBaseNotes_[(size_t)seqTrack_];
+    const int next = std::clamp(note + delta, 0, 127);
+    const int change = next - note; note = next;
+    for (int i = 0; i < kSeqMaxSteps; ++i) {
+        auto& n = seqNotes_[(size_t)seqTrack_][(size_t)i];
+        n = (uint8_t)std::clamp((int)n + change, 0, 127);
+        if (seqVel_[(size_t)seqTrack_][(size_t)i])
+            s_.setSeqStep(seqTrack_, i, n, seqVel_[(size_t)seqTrack_][(size_t)i]);
+    }
+}
+std::string SamplerApp::seqLabel(int lane) const {
+    static const char* labels[] = {"KICK", "SNARE", "RIM", "TOM 1", "TOM 2",
+                                   "OPEN HH", "CLOSED HH", "CRASH"};
+    return lane >= 0 && lane < kTracks ? labels[lane] : "";
+}
+std::string SamplerApp::seqSampleLabel(int lane) const {
+    if (lane < 0 || lane >= kTracks) return "";
+    return seqSampleNames_[(size_t)lane];
+}
+void SamplerApp::setProjectTempo(float bpm) {
+    s_.setSeqTempo(bpm);
+}
+void SamplerApp::setSeqPitch(int semitones, int cents) {
+    seqPitchSemitones_ = std::clamp(semitones, -24, 24);
+    seqPitchCents_ = std::clamp(cents, -100, 100);
+    s_.setSeqPitch(seqPitchSemitones_ + seqPitchCents_ * .01f);
+}
+void SamplerApp::applySeqPattern() {
+    s_.setSeqBeats(seqBeats_);
+    for (int lane = 0; lane < kTracks; ++lane)
+        for (int step = 0; step < seqBeats_ * 4; ++step)
+            s_.setSeqStep(lane, step, seqNotes_[(size_t)lane][(size_t)step],
+                          seqVel_[(size_t)lane][(size_t)step]);
+    setSeqPitch(seqPitchSemitones_, seqPitchCents_);
+}
+
 void SamplerApp::selectTrack(int t) {
     t = std::min(kTracks - 1, std::max(0, t));
     if (t == track_) return;
@@ -871,6 +975,22 @@ std::string SamplerApp::loopText() const {
 }
 void SamplerApp::keyEvent(int raw, bool down) {   // MIDI scene bank in LOOP mode; ordinary keyboard elsewhere
     if (raw < 0 || raw > 127) return;
+    if (seqMode_) {
+        // The FM-1 has sixteen white step keys and ten black selection keys.
+        // Count by key colour, not an assumed chromatic starting octave.
+        int white = 0, black = 0;
+        for (int note = 53; note <= 79; ++note) {
+            const int pc = note % 12;
+            const bool isBlack = pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10;
+            if (note == raw && down) {
+                if (isBlack && black < kTracks) selectSeqTrack(black);
+                else if (!isBlack && white < 16)
+                    toggleSeqStep(seqTrack_, seqBank_ * 16 + white);
+            }
+            if (isBlack) ++black; else ++white;
+        }
+        return;
+    }
     if (sceneKeys_ && !songMode_) {
         // Ableton labels MIDI 36..47 as C1..B1. Also accept scientific C1
         // (24..35), while the physical FM-1 first 12 keys arrive as 53..64.
@@ -1052,12 +1172,12 @@ void SamplerApp::button(int b, bool down) {
     }
     if (!down) return;
     switch (b) {
-    case HOME: exitPerformanceMode(); page_ = P_HOME; ++homeNavigationSerial_; break;
+    case HOME: setSequencerMode(false); exitPerformanceMode(); page_ = P_HOME; ++homeNavigationSerial_; break;
     case FX: page_ = P_FX; break;
     case ENV: page_ = P_ENV; break;
     case LFO: page_ = P_LFO; break;
     case ARP: page_ = P_ARP; break;
-    case SEQ: page_ = P_SEQ; break;
+    case SEQ: setSequencerMode(!seqMode_); break; // physical SEQ toggles the step editor
     case EDIT: page_ = P_MIX; break;
     case GLO: page_ = P_KEY; break;
     case SEL: page_ = P_LEN; break;
@@ -1067,6 +1187,10 @@ void SamplerApp::button(int b, bool down) {
 }
 void SamplerApp::encoder(int i, int delta) {
     if (!delta) return;
+    if (seqMode_ && !libraryBrowserActive_) {
+        if (i == 0) { selectSeqTrack(seqTrack_ + (delta > 0 ? 1 : -1)); return; }
+        if (i == 2) { moveSeqBank(delta); return; }  // K1 scrolls timeline
+    }
     if (i == 0) { selectTrack(track_ + (delta > 0 ? 1 : -1)); return; }
     if (i == 6) { browse(delta); return; }
     // In the open LIBRARY browser K1 navigates directory levels. Other
