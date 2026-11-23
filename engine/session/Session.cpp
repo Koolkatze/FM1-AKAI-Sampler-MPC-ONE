@@ -888,7 +888,12 @@ struct Session::Impl {
         const int32_t p0 = (int32_t)pos;
         const bool tl = playing && !freeRec && loopSamples > 0;
         if (!offlineRender) updateLoopPeaks();
-        const double spd = tapeSpeed.load() * pitchedTempo;
+        // Source clips were recorded at clipReferenceBpm. Advance their phase
+        // at the flexible project tempo, using worker-stretched playback PCM.
+        const double flexRate = loopSamples > 0
+            ? std::max(.10, std::min(10.0, (double)bpm / std::max(30.f, clipReferenceBpm)))
+            : 1.0;
+        const double spd = tapeSpeed.load() * pitchedTempo * flexRate;
         if (!playing) { rate = 1.0; stopping = false; }
         bool ramp = false; double rateSum = n, tapeEnd = tapePos;
         const bool scrubbing = (scrubActive || scrubTail) && loopSamples > 0 && !freeRec;
@@ -1015,14 +1020,27 @@ struct Session::Impl {
                     const float src0 = bus[2 * i], src1 = bus[2 * i + 1];
                     const int32_t k = (int32_t)cp % loopSamples;
                     if (t.clipHas) {
-                        auto& c = *t.clip;
-                        // Linear interpolation permits a fractional CUE start and avoids
-                        // the octave/pitch artifacts of rounded read pointers.
+                        const auto& c = *t.clip;
+                        // Each cached clip was WSOLA-stretched to the target
+                        // duration with pitch preserved. The transport head
+                        // remains in original-source coordinates for COW safety.
+                        const bool useFlex = !t.clipRec && !freeRec && t.flexAudio &&
+                            t.flexSource == t.clip &&
+                            std::fabs(t.flexBpm - bpm) < .001f &&
+                            std::fabs(t.flexSourceBpm - clipReferenceBpm) < .001f &&
+                            std::fabs(t.flexPitch - (seqPitchSemis + seqPitchCents / 100.f)) < .001f;
+                        const auto& playback = useFlex ? *t.flexAudio : c;
+                        const int32_t playbackFrames = (int32_t)(playback.size() / 2);
+                        const double scaled = playbackFrames / (double)loopSamples;
                         auto sampleAt = [&](double at, int ch) {
-                            const int32_t j = (int32_t)at % loopSamples;
-                            const int32_t j1 = (j + 1) % loopSamples;
-                            const float frac = (float)(at - std::floor(at));
-                            const float a = c[(size_t)2 * j + ch], b = c[(size_t)2 * j1 + ch];
+                            double x = at * scaled;
+                            x = std::fmod(x, (double)playbackFrames);
+                            if (x < 0) x += playbackFrames;
+                            const int32_t j = (int32_t)x;
+                            const int32_t j1 = (j + 1) % playbackFrames;
+                            const float frac = (float)(x - std::floor(x));
+                            const float a = playback[(size_t)2 * j + ch],
+                                        b = playback[(size_t)2 * j1 + ch];
                             return a + (b - a) * frac;
                         };
                         float baseL = sampleAt(cp, 0), baseR = sampleAt(cp, 1);
@@ -1112,9 +1130,11 @@ struct Session::Impl {
         for (int i = 0; i < n * 2; i++) { const float v = std::tanh(out[i] * masterVol); out[i] = v; mp = std::max(mp, std::fabs(v)); }
         a_master.store(std::max(mp, a_master.load() * 0.92f));
         if (playing) {
-            pos += rateSum;
+            // Scene boundaries and the sequencer follow actual tape movement.
+            pos += freeRec ? rateSum : rateSum * spd;
             if (freeRec) a_freeSec = (float)(pos / sr);
-            else if (loopSamples > 0 && pos >= loopSamples) pos -= loopSamples;
+            else if (loopSamples > 0 && pos >= loopSamples)
+                pos = std::fmod(pos, (double)loopSamples);
         }
         if (scrubbing) { pos = tapeEnd; }
         if (stopping && !scrubbing && (rate <= 0.0 || !tl)) { playing = false; stopping = false; rate = 1.0; for (auto& t : tracks) releaseAll(*t); }
@@ -1386,7 +1406,7 @@ void Session::seek(float f) {
         if (d->loopSamples <= 0 || d->freeRec) return;
         const double p = clampf(f, 0.f, 0.9999f) * d->loopSamples;
         d->pos = p; d->tapePos = p;
-        d->seqPhase = std::fmod(p * d->bpm * 4.0 / (60.0 * d->sr),
+        d->seqPhase = std::fmod(p * d->clipReferenceBpm * 4.0 / (60.0 * d->sr),
                                  (double)(d->seqBeats * 4));
         d->seqLastStep = -1;
     });
