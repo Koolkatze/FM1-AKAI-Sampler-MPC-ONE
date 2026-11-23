@@ -483,6 +483,7 @@ struct Session::Impl {
         }
         loopSamples = saved.samples; a_loop = loopSamples;
         loopBars = saved.bars; a_bars = loopBars;
+        clipReferenceBpm = saved.tempo;
         bpm = tempoFlexOverride ? tempoFlexReference : saved.tempo;
         a_bpm = bpm * pitchedTempo;
         pos = saved.pos; tapePos = saved.tapePos; rate = saved.rate;
@@ -494,6 +495,7 @@ struct Session::Impl {
         scrubActive = scrubTail = false;
         cueActive = false; cueMix = 0.f;
         sceneFadeFrames = std::max(1, sr / 180);
+        refreshLoopProcessing();
     }
 
     // Change all 8 loop tracks together. Copy-on-write clips make this constant-time
@@ -510,6 +512,7 @@ struct Session::Impl {
         }
         loopSamples = sc.samples; a_loop = loopSamples;
         loopBars = sc.bars; a_bars = loopBars;
+        clipReferenceBpm = sc.tempo;
         bpm = tempoFlexOverride ? tempoFlexReference : sc.tempo;
         a_bpm = bpm * pitchedTempo;
         seqPhase = 0.; seqLastStep = -1;
@@ -519,6 +522,7 @@ struct Session::Impl {
         scrubActive = scrubTail = false;
         cueActive = false; cueMix = 0.f;
         sceneFadeFrames = std::max(1, sr / 180);  // about 5.5 ms
+        refreshLoopProcessing();
     }
 
     ProjectSnapshot captureProject(std::vector<uint8_t> app,
@@ -557,6 +561,7 @@ struct Session::Impl {
         scrubActive = scrubTail = false; freeBuf.clear();
         const auto& c = s.current;
         loopSamples = c.samples; loopBars = c.bars; bpm = c.tempo;
+        clipReferenceBpm = c.tempo;
         tempoFlexOverride = false;
         tempoFlexReference = bpm;
         pos = c.pos; tapePos = c.tapePos; rate = c.rate;
@@ -602,6 +607,7 @@ struct Session::Impl {
         a_activeScene = activeScene; a_queuedScene = pendingScene;
         a_arrangementLoaded = true;
         projectRestored = true; // asynchronous startup scene restore must not overwrite it
+        refreshLoopProcessing();
     }
 
     // Save/load whole scenes off the audio thread. The shared buffers cannot
@@ -754,10 +760,12 @@ struct Session::Impl {
         loopBars = n; a_bars = n;
         seqPhase = 0.; seqLastStep = -1;
         loopSamples = (int32_t)std::lround(len); a_loop = loopSamples;
+        clipReferenceBpm = bpm;
         Track& ft = *tracks[freeTrack];
         if (!freeBuf.empty()) { freeBuf.resize((size_t)loopSamples * 2, 0.f); ft.clip = std::make_shared<std::vector<float>>(std::move(freeBuf)); ft.clipHas = true; }
         freeBuf = {};
         pos = 0; tapePos = 0;
+        refreshLoopProcessing();
     }
     void clearIfEmpty() {
         for (auto& t : tracks) if (t->clipHas) return;
@@ -1264,6 +1272,7 @@ void Session::setMasterBpm(float value) {
         d->tempoFlexReference = value;
         d->bpm = value;
         d->a_bpm = value * d->pitchedTempo;
+        d->refreshLoopProcessing();
     });
 }
 void Session::setGlobalPitch(float semis, float cents) {
@@ -1273,6 +1282,7 @@ void Session::setGlobalPitch(float semis, float cents) {
         d->seqPitchCents = std::max(-100.f, std::min(100.f, cents));
         for (auto& track : d->tracks)
             if (track->sampler) track->sampler->setBend(d->seqPitchSemis + d->seqPitchCents / 100.f);
+        d->refreshLoopProcessing();
     });
 }
 void Session::setPitchedTempo(float ratio) {
