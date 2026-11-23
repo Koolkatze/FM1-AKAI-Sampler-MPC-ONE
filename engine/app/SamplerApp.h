@@ -315,6 +315,7 @@ private:
     bool playModified_ = false;
     Page cueReturnPage_ = P_HOME;
     uint32_t held_ = 0;
+    uint32_t seqButtonDownAt_ = 0;
     ScaleState scale_;
     uint32_t touchedAt_ = 0; int touchedKnob_ = -1;
     std::vector<SurfaceCell> cells_;
