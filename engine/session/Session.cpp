@@ -371,6 +371,9 @@ struct Session::Impl {
     // inside the real-time callback. Original loop PCM remains immutable.
     // Stale worker results cannot replace a newly loaded scene/project/overdub.
     void refreshLoopProcessing() {
+        // Offline song/stem bounces supply their own precomputed stretch cache
+        // on the worker. They must never queue jobs without an audio worker.
+        if (offlineRender) return;
         const uint64_t ticket = ++flexTicket;
         const float reference = std::max(30.f, clipReferenceBpm);
         const double speed = std::max(.10, std::min(10.0, (double)bpm / reference));
@@ -1836,6 +1839,10 @@ bool Session::exportSong(const std::string& directory) {
         }
         const auto scenes = d->scenes; // shared_ptr copy; no audio-data copy
         const auto order = d->songOrder;
+        const bool flexible = d->tempoFlexOverride;
+        const float desiredBpm = d->bpm;
+        const double tapeRatio = d->tapeSpeed.load() * d->pitchedTempo;
+        std::vector<uint64_t> sceneFrames;
         uint64_t songFrames = 0;
         for (int slot : order) {
             if (slot < 0 || slot >= kScenes || !scenes[(size_t)slot].filled ||
@@ -1844,7 +1851,15 @@ bool Session::exportSong(const std::string& directory) {
                 d->loopExportOp = -3; return;
             }
             const auto& scene = scenes[(size_t)slot];
-            songFrames += (uint64_t)scene.samples;
+            const double rate = std::max(.10, tapeRatio *
+                (flexible ? desiredBpm / std::max(30.f, scene.tempo) : 1.0));
+            const uint64_t frames = (uint64_t)std::ceil(scene.samples / rate);
+            sceneFrames.push_back(frames);
+            if (frames > (UINT32_MAX - 36u) / 4u ||
+                songFrames > (UINT32_MAX - 36u) / 4u - frames) {
+                d->loopExportOp = -2; return;
+            }
+            songFrames += frames;
             for (int t = 0; t < kTracks; ++t) {
                 if (scene.has[(size_t)t] &&
                     (!scene.clips[(size_t)t] ||
@@ -1859,7 +1874,9 @@ bool Session::exportSong(const std::string& directory) {
         Impl::LoopExportSnapshot fx;
         fx.sampleRate = d->sr;
         fx.masterVolume = d->masterVol;
-        fx.tapeSpeed = d->tapeSpeed.load() * d->pitchedTempo;
+        fx.projectBpm = desiredBpm;
+        fx.globalPitch = d->seqPitchSemis + d->seqPitchCents / 100.f;
+        fx.tapeSpeed = (float)tapeRatio;
         fx.returns[0] = d->ret[0]; fx.returns[1] = d->ret[1];
         fx.reverbSize = d->reverbSize;
         fx.delaySeconds = d->delaySeconds;
@@ -1885,7 +1902,8 @@ bool Session::exportSong(const std::string& directory) {
             d->loopExportOp = -2; return; // WAV 32-bit RIFF size limit
         }
 
-        d->job([this, directory, scenes, order, fx, songFrames, tail]() {
+        d->job([this, directory, scenes, order, sceneFrames, flexible,
+                fx, songFrames, tail]() {
             namespace fs = std::filesystem;
             std::error_code ec;
             fs::create_directories(directory, ec);
@@ -1899,6 +1917,8 @@ bool Session::exportSong(const std::string& directory) {
             bounce.songPlaying = true;
             bounce.masterVol = fx.masterVolume;
             bounce.tapeSpeed = fx.tapeSpeed;
+            bounce.tempoFlexOverride = flexible;
+            bounce.tempoFlexReference = fx.projectBpm;
             bounce.ret[0] = fx.returns[0];
             bounce.ret[1] = fx.returns[1];
             bounce.reverb.setSize(fx.reverbSize);
@@ -1923,7 +1943,45 @@ bool Session::exportSong(const std::string& directory) {
             for (size_t step = 0; ok && step < order.size(); ++step) {
                 bounce.songStep = (int)step;
                 bounce.activateScene(order[step]);
-                const uint64_t frames = (uint64_t)scenes[(size_t)order[step]].samples;
+                const auto& sc = scenes[(size_t)order[step]];
+                const double tempoRatio = (double)bounce.bpm /
+                                          std::max(30.f, sc.tempo);
+                // Song scenes are rendered on this background worker, not on
+                // the real-time audio thread. Source WAV/scene clips stay COW.
+                if (std::fabs(tempoRatio - 1.0) > .002 ||
+                    std::fabs(fx.globalPitch) > .002) {
+                    try {
+                        for (int t = 0; t < kTracks; ++t) {
+                            if (!sc.has[(size_t)t]) continue;
+                            auto& tr = *bounce.tracks[(size_t)t];
+                            const std::vector<float>* in = sc.clips[(size_t)t].get();
+                            std::vector<float> intermediate;
+                            double remaining = tempoRatio;
+                            while (remaining > 4.0) {
+                                intermediate = stretchPitch(*in, fx.sampleRate, 4.0, 0.0);
+                                in = &intermediate; remaining /= 4.0;
+                            }
+                            while (remaining < 0.25) {
+                                intermediate = stretchPitch(*in, fx.sampleRate, 0.25, 0.0);
+                                in = &intermediate; remaining /= 0.25;
+                            }
+                            auto data = stretchPitch(*in, fx.sampleRate, remaining,
+                                                      fx.globalPitch);
+                            const size_t length = (size_t)std::max(64.0,
+                                      std::round(sc.samples / tempoRatio));
+                            data.resize(length * 2, 0.f);
+                            tr.flexSource = tr.clip;
+                            tr.flexAudio = std::make_shared<const std::vector<float>>(std::move(data));
+                            tr.flexBpm = bounce.bpm;
+                            tr.flexSourceBpm = sc.tempo;
+                            tr.flexPitch = fx.globalPitch;
+                        }
+                    } catch (const std::bad_alloc&) {
+                        ok = false;
+                        break;
+                    }
+                }
+                const uint64_t frames = sceneFrames[step];
                 for (uint64_t done = 0; ok && done < frames;) {
                     const int n = (int)std::min<uint64_t>(kBlock, frames - done);
                     bounce.block(audio.data(), nullptr, n);
