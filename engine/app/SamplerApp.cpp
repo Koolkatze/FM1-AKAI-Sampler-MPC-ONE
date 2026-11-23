@@ -463,10 +463,7 @@ void SamplerApp::setSeqPitch(int semitones, int cents) {
 }
 void SamplerApp::applySeqPattern() {
     s_.setSeqBeats(seqBeats_);
-    for (int lane = 0; lane < kTracks; ++lane)
-        for (int step = 0; step < seqBeats_ * 4; ++step)
-            s_.setSeqStep(lane, step, seqNotes_[(size_t)lane][(size_t)step],
-                          seqVel_[(size_t)lane][(size_t)step]);
+    s_.replaceSeqPattern(seqNotes_, seqVel_);
     setSeqPitch(seqPitchSemitones_, seqPitchCents_);
 }
 
