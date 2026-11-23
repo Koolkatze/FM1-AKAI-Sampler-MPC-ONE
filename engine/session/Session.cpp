@@ -360,7 +360,17 @@ struct Session::Impl {
         const float reference = std::max(30.f, clipReferenceBpm);
         const double speed = std::max(.10, std::min(10.0, (double)bpm / reference));
         const double pitch = seqPitchSemis + seqPitchCents / 100.0;
-        for (auto& tr : tracks) { tr->flexAudio.reset(); tr->flexSource.reset(); }
+        // Deferred release: never free multi-megabyte WSOLA clips on the
+        // real-time audio callback when a control or scene changes.
+        std::array<std::shared_ptr<const std::vector<float>>, kTracks> retired{};
+        bool haveRetired = false;
+        for (int t = 0; t < kTracks; ++t) {
+            auto& tr = *tracks[(size_t)t];
+            retired[(size_t)t] = std::move(tr.flexAudio);
+            haveRetired |= (bool)retired[(size_t)t];
+            tr.flexSource.reset();
+        }
+        if (haveRetired) job([keep = std::move(retired)] {});
         if (loopSamples <= 0 || freeRec ||
             (std::fabs(speed - 1.0) < .002 && std::fabs(pitch) < .002)) {
             a_flexPending = false;
