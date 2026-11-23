@@ -172,6 +172,9 @@ struct Session::Impl {
     struct LoopExportSnapshot {
         struct TrackData {
             std::shared_ptr<std::vector<float>> clip;
+            std::shared_ptr<std::vector<float>> flexSource;
+            std::shared_ptr<const std::vector<float>> flexAudio;
+            float flexBpm = 0.f, flexSourceBpm = 0.f, flexPitch = 0.f;
             bool has = false;
             float vol = 0.f, pan = 0.f, send[2] = {0, 0};
             int scSrc = -1;
@@ -183,6 +186,7 @@ struct Session::Impl {
         std::array<TrackData, kTracks> track{};
         int sampleRate = 0, loopSamples = 0;
         float tapeSpeed = 1.f, masterVolume = 0.9f;
+        float sourceBpm = 120.f, projectBpm = 120.f, globalPitch = 0.f;
         float returns[2] = {0.35f, 0.7f};
         float reverbSize = 0.7f, delaySeconds = 0.4f, delayFeedback = 0.4f;
     };
@@ -1626,7 +1630,11 @@ bool Session::exportLoops(const std::string& directory) {
         Impl::LoopExportSnapshot snap;
         snap.sampleRate = d->sr;
         snap.loopSamples = d->loopSamples;
-        snap.tapeSpeed = d->tapeSpeed.load() * d->pitchedTempo;
+        snap.sourceBpm = d->clipReferenceBpm;
+        snap.projectBpm = d->bpm;
+        snap.globalPitch = d->seqPitchSemis + d->seqPitchCents / 100.f;
+        const double tempoRatio = (double)d->bpm / std::max(30.f, d->clipReferenceBpm);
+        snap.tapeSpeed = (float)(d->tapeSpeed.load() * d->pitchedTempo * tempoRatio);
         snap.masterVolume = d->masterVol;
         snap.returns[0] = d->ret[0]; snap.returns[1] = d->ret[1];
         snap.reverbSize = d->reverbSize;
@@ -1639,6 +1647,11 @@ bool Session::exportLoops(const std::string& directory) {
             if (t.clipHas && t.clip &&
                 t.clip->size() == (size_t)snap.loopSamples * 2) {
                 dst.clip = t.clip;  // COW: overdubs never mutate the snapshot
+                dst.flexAudio = t.flexAudio;
+                dst.flexSource = t.flexSource;
+                dst.flexBpm = t.flexBpm;
+                dst.flexSourceBpm = t.flexSourceBpm;
+                dst.flexPitch = t.flexPitch;
                 dst.has = true; ++populated;
             } else if (t.clipHas) {
                 d->loopExportOp = -2; return; // invalid/incomplete clip
@@ -1651,14 +1664,56 @@ bool Session::exportLoops(const std::string& directory) {
         }
         if (!populated) { d->loopExportOp = -1; return; }
 
-        d->job([this, snap = std::move(snap), directory] {
+        d->job([this, snap = std::move(snap), directory]() mutable {
             namespace fs = std::filesystem;
             std::error_code ec;
             fs::create_directories(directory, ec);
             if (ec) { d->loopExportOp = -2; return; }
-            // The real engine uses its integer head when speed is near 1x.
+            // Export uses the same pitch-preserving PCM as live playback.
+            // If a live render is still pending, build the exact cache here
+            // on the export worker rather than exporting incorrectly pitched WAVs.
+            const double tempoRatio = (double)snap.projectBpm /
+                                      std::max(30.f, snap.sourceBpm);
+            if (std::fabs(tempoRatio - 1.0) > .002 ||
+                std::fabs(snap.globalPitch) > .002) {
+                try {
+                    for (auto& tr : snap.track) {
+                        if (!tr.has) continue;
+                        const bool ready = tr.flexAudio && tr.flexSource == tr.clip &&
+                            std::fabs(tr.flexBpm - snap.projectBpm) < .001f &&
+                            std::fabs(tr.flexSourceBpm - snap.sourceBpm) < .001f &&
+                            std::fabs(tr.flexPitch - snap.globalPitch) < .001f;
+                        if (ready) continue;
+                        const std::vector<float>* in = tr.clip.get();
+                        std::vector<float> intermediate;
+                        double remaining = tempoRatio;
+                        while (remaining > 4.0) {
+                            intermediate = stretchPitch(*in, snap.sampleRate, 4.0, 0.0);
+                            in = &intermediate; remaining /= 4.0;
+                        }
+                        while (remaining < 0.25) {
+                            intermediate = stretchPitch(*in, snap.sampleRate, 0.25, 0.0);
+                            in = &intermediate; remaining /= 0.25;
+                        }
+                        auto audio = stretchPitch(*in, snap.sampleRate, remaining,
+                                                  snap.globalPitch);
+                        const size_t frames = (size_t)std::max(64.0,
+                                             std::round(snap.loopSamples / tempoRatio));
+                        audio.resize(frames * 2, 0.f);
+                        tr.flexAudio = std::make_shared<const std::vector<float>>(std::move(audio));
+                        tr.flexSource = tr.clip;
+                        tr.flexBpm = snap.projectBpm;
+                        tr.flexSourceBpm = snap.sourceBpm;
+                        tr.flexPitch = snap.globalPitch;
+                    }
+                } catch (const std::bad_alloc&) {
+                    d->loopExportOp = -2;
+                    return;
+                }
+            }
+            // Tape and PITCHED TEMPO are coupled; WSOLA Flex is not.
             const double speed = std::fabs(snap.tapeSpeed - 1.f) < 0.01f
-                ? 1.0 : std::max(0.25, (double)snap.tapeSpeed);
+                ? 1.0 : std::max(.10, (double)snap.tapeSpeed);
             const uint64_t frames = (uint64_t)std::ceil(snap.loopSamples / speed);
             bool ok = frames > 0 && frames <= (UINT32_MAX - 36u) / 4u;
             // The MASTER pass includes the sum before shared FX returns and
@@ -1673,7 +1728,9 @@ bool Session::exportLoops(const std::string& directory) {
                 bounce.loopSamples = snap.loopSamples;
                 bounce.a_loop = snap.loopSamples;
                 bounce.playing = true; bounce.stopping = false; bounce.rate = 1.0;
-                bounce.tapeSpeed = (float)speed;
+                bounce.bpm = snap.projectBpm;
+                bounce.clipReferenceBpm = snap.sourceBpm;
+                bounce.tapeSpeed = (float)(speed / std::max(.10, tempoRatio));
                 bounce.masterVol = snap.masterVolume;
                 bounce.ret[0] = snap.returns[0];
                 bounce.ret[1] = snap.returns[1];
@@ -1685,6 +1742,11 @@ bool Session::exportLoops(const std::string& directory) {
                     auto& dst = *bounce.tracks[(size_t)t];
                     dst.clipHas = src.has; dst.clip = src.clip ? src.clip
                         : std::make_shared<std::vector<float>>();
+                    dst.flexAudio = src.flexAudio;
+                    dst.flexSource = src.flexSource;
+                    dst.flexBpm = src.flexBpm;
+                    dst.flexSourceBpm = src.flexSourceBpm;
+                    dst.flexPitch = src.flexPitch;
                     dst.vol = (solo < 0 || t == solo) ? src.vol : 0.f;
                     dst.pan = src.pan;
                     dst.send[0] = src.send[0]; dst.send[1] = src.send[1];
