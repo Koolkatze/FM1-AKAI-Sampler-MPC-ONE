@@ -1174,18 +1174,24 @@ void Session::process(float* out, const float* in, int frames) {
     for (int done = 0; done < frames;) {
         int n = std::min(kBlock, frames - done);
         const bool timeline = d->playing && !d->stopping && !d->freeRec && d->loopSamples > 0;
+        const double sourceRate = d->tapeSpeed.load() * d->pitchedTempo *
+            (timeline ? std::max(.10, std::min(10.0,
+                (double)d->bpm / std::max(30.f, d->clipReferenceBpm))) : 1.0);
         if (timeline) {
             // Split precisely on a bar/scene boundary instead of waiting for a 256-frame block.
             const double next = d->songPlaying ? (double)d->loopSamples :
                 d->pendingScene >= 0 ? d->pendingAt : (double)d->loopSamples;
             if (d->songPlaying || d->pendingScene >= 0)
-                n = std::max(1, std::min(n, (int)std::ceil(std::max(1.0, next - d->pos - 1e-7))));
+                n = std::max(1, std::min(n, (int)std::ceil(
+                    std::max(1.0, next - d->pos - 1e-7) /
+                    std::max(0.001, sourceRate))));
         }
         const double oldPos = d->pos;
         d->block(out + 2 * done, in ? in + 2 * done : nullptr, n);
         done += n;
+        const bool wrapped = timeline && d->pos + 0.51 < oldPos;
         if (timeline && d->songPlaying && d->loopSamples > 0 &&
-            oldPos + n >= d->loopSamples - 0.51) {
+            wrapped) {
             if (d->songStep + 1 < (int)d->songOrder.size()) {
                 ++d->songStep;
                 d->activateScene(d->songOrder[(size_t)d->songStep]);
@@ -1195,7 +1201,8 @@ void Session::process(float* out, const float* in, int frames) {
                 for (auto& track : d->tracks) d->releaseAll(*track);
             }
         } else if (timeline && !d->songPlaying && d->pendingScene >= 0 &&
-                   oldPos + n >= d->pendingAt - 0.51) {
+                   (wrapped || (oldPos < d->pendingAt &&
+                                d->pos >= d->pendingAt - 0.51))) {
             d->activateScene(d->pendingScene);
         }
     }
