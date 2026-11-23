@@ -54,6 +54,7 @@ public:
     void selectSequencerTrack(int track);
     int sequencerPage() const { return seqPage_; }
     int sequencerBeats() const { return seqBeats_; }
+    int sequencerEditStep() const { return seqEditStep_; }
     void setSequencerBeats(int beats);
     void setSequencerPage(int page);
     void sequencerToggleStep(int step);
