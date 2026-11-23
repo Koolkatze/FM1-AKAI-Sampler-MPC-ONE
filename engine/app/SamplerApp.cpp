@@ -1,5 +1,6 @@
 #include "SamplerApp.h"
 #include "../ui/Theme.h"
+#include "../dsp/Wav.h"
 #include <Common.h>
 #include <algorithm>
 #include <cctype>
@@ -378,25 +379,64 @@ void SamplerApp::setScale(int scale, int root, int octave, int mode) {
 }
 // ---- independent 8-lane step sequencer ----
 void SamplerApp::initSeqDefaults() {
-    static const char* names[] = {"KICK", "SNARE", "RIM", "TOM 1", "TOM 2",
-                                  "HIHAT OPEN", "HIHAT CLOSED", "CRASH"};
-    // The existing 707 KIT is a fallback instrument while dedicated one-shots
-    // are selected from the same library. It does not take a looper track.
-    const Entry* kit = nullptr;
-    for (const auto& e : lib_) if (e.group == "Drums" && e.kit) {
-        kit = &e;
-        if (e.label.find("707") != std::string::npos) break;
-    }
+    // Eight original one-shots: compact assets generated in the user's
+    // OFFICIAL library. Unlike binding eight full drum kits this is light on
+    // RAM and every drum has its own envelope and sample file.
+    static const char* labels[] = {"Kick", "Snare", "Rim", "Tom 1", "Tom 2",
+                                   "HiHat Open", "HiHat Closed", "Crash"};
+    const auto root = std::filesystem::path(s_.sampleDir()) / "OFFICIAL" / "SEQUENCER";
+    std::error_code ec;
+    std::filesystem::create_directories(root, ec);
+    const int sampleRate = 48000;
     for (int lane = 0; lane < kTracks; ++lane) {
-        seqSampleNames_[(size_t)lane] = names[lane];
-        for (int st = 0; st < kSeqMaxSteps; ++st) seqNotes_[(size_t)lane][(size_t)st] = (uint8_t)(60 + lane);
-        seqBaseNotes_[(size_t)lane] = 60 + lane;
-        if (kit) {
-            seqSamplePaths_[(size_t)lane] = kit->path;
-            seqKit_[(size_t)lane] = true;
-            s_.loadSeqSamplePath(kit->path, true, lane, 60 + lane);
+        const std::filesystem::path path = root / (std::string(labels[lane]) + ".wav");
+        if (!ec && !std::filesystem::is_regular_file(path, ec)) {
+            const double duration = lane == 5 ? 0.62 : lane == 7 ? 1.10 :
+                                    lane == 0 ? 0.48 : lane == 1 ? 0.30 :
+                                    lane == 6 ? 0.14 : 0.25;
+            const int frames = (int)(sampleRate * duration);
+            std::vector<float> audio((size_t)frames * 2);
+            uint32_t rng = 0xa58751u + (uint32_t)lane * 18201u;
+            double phase = 0.0, filtered = 0.0;
+            for (int i = 0; i < frames; ++i) {
+                const double t = (double)i / sampleRate;
+                rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
+                const double noise = ((rng & 0xffff) / 32767.5) - 1.0;
+                const double high = noise - filtered;
+                filtered = filtered * .94 + noise * .06;
+                double f = lane == 0 ? 49.0 + 110.0 * std::exp(-t * 35.0) :
+                           lane == 3 ? 158.0 + 75.0 * std::exp(-t * 16.0) :
+                           lane == 4 ? 108.0 + 60.0 * std::exp(-t * 16.0) :
+                           lane == 2 ? 650.0 : 184.0;
+                phase += 6.283185307179586 * f / sampleRate;
+                const double tone = std::sin(phase);
+                double out = 0.0;
+                if (lane == 0) out = tone * std::exp(-t * 12.0);
+                else if (lane == 1) out = (0.82 * high + 0.28 * tone) * std::exp(-t * 21.0);
+                else if (lane == 2) out = (0.64 * tone + 0.48 * high) * std::exp(-t * 66.0);
+                else if (lane == 3 || lane == 4) out = (tone + 0.12 * high) * std::exp(-t * 15.0);
+                else if (lane == 5) out = high * std::exp(-t * 6.0);
+                else if (lane == 6) out = high * std::exp(-t * 44.0);
+                else out = (0.72 * high + 0.18 * std::sin(phase * 1.318)) * std::exp(-t * 3.4);
+                out = std::tanh(out * (lane == 0 ? 1.45 : 1.2)) * 0.62;
+                const float attack = std::min(1.0, t * 2600.0);
+                const float value = (float)(out * attack);
+                audio[(size_t)i * 2] = value;
+                audio[(size_t)i * 2 + 1] = value;
+            }
+            writeWav16(path.string(), audio, sampleRate);
         }
+        seqSampleNames_[(size_t)lane] = labels[lane];
+        seqBaseNotes_[(size_t)lane] = 60;
+        seqKit_[(size_t)lane] = false;
+        seqSamplePaths_[(size_t)lane] = (!ec && std::filesystem::exists(path)) ?
+                                      path.string() : "";
+        for (int st = 0; st < kSeqMaxSteps; ++st)
+            seqNotes_[(size_t)lane][(size_t)st] = 60;
+        if (!seqSamplePaths_[(size_t)lane].empty())
+            s_.loadSeqSamplePath(seqSamplePaths_[(size_t)lane], false, lane, 60);
     }
+    refreshLibrary(); // generated OFFICIAL one-shots appear in the shared browser
     s_.setSeqBeats(seqBeats_);
     s_.setSeqEnabled(true);
 }
