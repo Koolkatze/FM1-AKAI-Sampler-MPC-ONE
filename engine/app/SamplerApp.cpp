@@ -494,17 +494,32 @@ std::string SamplerApp::seqSampleLabel(int lane) const {
     return seqSampleNames_[(size_t)lane];
 }
 void SamplerApp::setProjectTempo(float bpm) {
-    s_.setSeqTempo(bpm);
+    if (!s_.transformProject(bpm, seqPitchSemitones_ + seqPitchCents_ * .01f +
+                            pitchedTempoSemitones_)) say("AUDIO RENDER BUSY");
+}
+void SamplerApp::setPitchedTempo(float bpm) {
+    const float from = std::max(30.f, st_.bpm);
+    const float to = std::clamp(bpm, 30.f, 300.f);
+    const float pitched = pitchedTempoSemitones_ + 12.f * std::log2(to / from);
+    if (s_.transformProject(to, seqPitchSemitones_ + seqPitchCents_ * .01f + pitched))
+        pitchedTempoSemitones_ = pitched;
+    else say("AUDIO RENDER BUSY");
 }
 void SamplerApp::setSeqPitch(int semitones, int cents) {
-    seqPitchSemitones_ = std::clamp(semitones, -24, 24);
-    seqPitchCents_ = std::clamp(cents, -100, 100);
-    s_.setSeqPitch(seqPitchSemitones_ + seqPitchCents_ * .01f);
+    const int semi = std::clamp(semitones, -24, 24);
+    const int cent = std::clamp(cents, -100, 100);
+    const float total = semi + cent * .01f + pitchedTempoSemitones_;
+    if (s_.transformProject(st_.bpm, total)) {
+        seqPitchSemitones_ = semi; seqPitchCents_ = cent;
+    } else say("AUDIO RENDER BUSY");
 }
 void SamplerApp::applySeqPattern() {
     s_.setSeqBeats(seqBeats_);
     s_.replaceSeqPattern(seqNotes_, seqVel_);
-    setSeqPitch(seqPitchSemitones_, seqPitchCents_);
+    // The archive already contains processed audio. Re-establish the absolute
+    // source pitch rather than shifting it a second time after restoration.
+    s_.setLoadedPitchState(seqPitchSemitones_ + seqPitchCents_ * .01f +
+                           pitchedTempoSemitones_);
 }
 
 void SamplerApp::selectTrack(int t) {
@@ -786,6 +801,7 @@ struct FullProjectSettingsV4 {
     FullProjectSettings legacy{};
     uint32_t seqBeats = 4, seqTrack = 0, seqBank = 0;
     int32_t pitchSemitones = 0, pitchCents = 0;
+    float pitchedTempoSemitones = 0.f;
     uint8_t seqMode = 0;
     std::array<uint8_t, SamplerApp::kTracks> seqKits{};
     std::array<int32_t, SamplerApp::kTracks> seqBaseNotes{};
@@ -829,6 +845,7 @@ bool SamplerApp::saveFullProject(int slot) {
     extended.seqBank = (uint32_t)seqBank_;
     extended.pitchSemitones = seqPitchSemitones_;
     extended.pitchCents = seqPitchCents_;
+    extended.pitchedTempoSemitones = pitchedTempoSemitones_;
     extended.seqMode = seqMode_ ? 1 : 0;
     extended.seqNotes = seqNotes_;
     extended.seqVelocities = seqVel_;
@@ -949,7 +966,9 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
             extended.seqTrack >= kTracks || extended.seqBank > 15 ||
             extended.seqMode > 1 || extended.pitchSemitones < -24 ||
             extended.pitchSemitones > 24 || extended.pitchCents < -100 ||
-            extended.pitchCents > 100) {
+            extended.pitchCents > 100 ||
+            !std::isfinite(extended.pitchedTempoSemitones) ||
+            std::fabs(extended.pitchedTempoSemitones) > 36.f) {
             say("SEQUENCER PROJECT SETTINGS CORRUPT"); return;
         }
         seqBeats_ = (int)extended.seqBeats;
@@ -958,6 +977,7 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
         seqMode_ = extended.seqMode != 0;
         seqPitchSemitones_ = extended.pitchSemitones;
         seqPitchCents_ = extended.pitchCents;
+        pitchedTempoSemitones_ = extended.pitchedTempoSemitones;
         seqNotes_ = extended.seqNotes;
         seqVel_ = extended.seqVelocities;
         for (int i = 0; i < kTracks; ++i) {
@@ -976,6 +996,7 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
         seqMode_ = false;
         seqBeats_ = 4; seqTrack_ = seqBank_ = 0;
         seqPitchSemitones_ = seqPitchCents_ = 0;
+        pitchedTempoSemitones_ = 0.f;
         seqVel_ = {}; seqNotes_ = {};
         initSeqDefaults();
         applySeqPattern();
