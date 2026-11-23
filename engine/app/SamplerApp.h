@@ -64,7 +64,8 @@ public:
     std::string seqLabel(int lane) const;
     std::string seqSampleLabel(int lane) const;
     float projectTempo() const { return st_.bpm; }
-    void setProjectTempo(float bpm);
+    void setProjectTempo(float bpm);           // pitch-preserving Tempo Flex
+    void setPitchedTempo(float bpm);           // tape-style tempo + pitch coupling
     int seqPitchSemitones() const { return seqPitchSemitones_; }
     int seqPitchCents() const { return seqPitchCents_; }
     void setSeqPitch(int semitones, int cents);
@@ -242,6 +243,7 @@ private:
     bool seqMode_ = false;
     int seqTrack_ = 0, seqBeats_ = 4, seqBank_ = 0;
     int seqPitchSemitones_ = 0, seqPitchCents_ = 0;
+    float pitchedTempoSemitones_ = 0.f;
     std::array<std::array<uint8_t, kSeqMaxSteps>, kTracks> seqVel_{};
     std::array<std::array<uint8_t, kSeqMaxSteps>, kTracks> seqNotes_{};
     std::array<int, kTracks> seqBaseNotes_{{60, 60, 60, 60, 60, 60, 60, 60}};
