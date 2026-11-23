@@ -17,6 +17,8 @@ public:
     static constexpr int kVoiceMax = 32;
     static constexpr int kLoopBins = 400;
     static constexpr int kScenes = 12;   // C1..B1
+    static constexpr int kSeqTracks = 8;
+    static constexpr int kSeqMaxSteps = 256;  // up to 64/4 at 1/16 resolution
 
     struct Status {
         bool playing;
@@ -24,6 +26,9 @@ public:
         double loopSamples;      // 0 = no loop yet
         float bpm;
         int loopBars;
+        int seqStep;           // audio-clocked playhead (0..beats*4-1)
+        int seqBeats;          // 1/4..64/4, independent of loop length
+        bool seqEnabled;
         float master_peak;
         float track_peak[kTracks];
         bool track_has_clip[kTracks], track_clip_rec[kTracks];
@@ -64,6 +69,15 @@ public:
     void play(bool on);
     void noteOn(int track, int note, int vel);
     void noteOff(int track, int note);
+
+    // Independent eight-lane sequencer; these voices NEVER occupy looper tracks.
+    // All edits are queued for the next audio block; no disk work on the audio thread.
+    void setSeqBeats(int numerator);  // n/4, n = 1..64
+    void setSeqStep(int lane, int step, int note, int velocity); // velocity=0 clears
+    void setSeqEnabled(bool on);
+    void loadSeqSamplePath(const std::string& path, bool kit, int lane, int triggerNote = 60);
+    void setSeqPitch(float semitones); // global tuning, clock unaffected
+    void setSeqTempo(float bpm);       // global transport clock, 30..300 BPM
 
     // ---- sampler (per track) ----
     void loadSamplePath(const std::string& path, bool kit, int track, const std::string& displayName = "");          // worker thread builds it, then it replaces the track's sampler
