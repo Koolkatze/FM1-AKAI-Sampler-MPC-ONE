@@ -1323,10 +1323,23 @@ void SamplerApp::tick(uint32_t now) {
     if (repaintAt_ && now >= repaintAt_) { repaintAt_ = repaintAt_ + 2500 < now + 2500 && repaintCount_++ < 1 ? now + 2500 : 0; needClear_ = true; }
     st_ = s_.status();
     Session::LoadedProject loadedProject;
-    if (s_.takeLoadedProject(loadedProject)) {
+    const bool loadedThisTick = s_.takeLoadedProject(loadedProject);
+    if (loadedThisTick) {
         applyLoadedProject(loadedProject);
         st_ = s_.status();
     }
+    // Initial free recording chooses its own measured BPM. Scene changes can
+    // also change BPM. Keep the Tempo Flex knob on the audible transport value
+    // rather than an obsolete 120 BPM; do not overwrite a freshly loaded v4
+    // project's explicit saved setting before its audio command is applied.
+    if (!loadedThisTick &&
+        (observedLoopSamples_ != st_.loopSamples || observedScene_ != st_.activeScene)) {
+        const float ratio = std::max(.25f, pitchedTempo_);
+        if (std::isfinite(st_.bpm) && st_.bpm >= 30.f)
+            tempoFlexBpm_ = cl(st_.bpm / ratio, 30.f, 300.f);
+    }
+    observedLoopSamples_ = st_.loopSamples;
+    observedScene_ = st_.activeScene;
     const int projectState = s_.projectOperation();
     if (projectState != lastProjectOperation_) {
         lastProjectOperation_ = projectState;
