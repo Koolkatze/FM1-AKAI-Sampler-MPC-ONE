@@ -1332,8 +1332,12 @@ void SamplerApp::button(int b, bool down) {
 void SamplerApp::encoder(int i, int delta) {
     if (!delta) return;
     if (seqMode_ && !libraryBrowserActive_) {
-        if (i == 0) { selectSeqTrack(seqTrack_ + (delta > 0 ? 1 : -1)); return; }
-        if (i == 2) { moveSeqBank(delta); return; }  // K1 scrolls timeline
+        const int direction = delta > 0 ? 1 : -1;
+        if (i == 0) { selectSeqTrack(seqTrack_ + direction); return; } // SELECT
+        if (i == 2) { moveSeqBank(direction); return; } // K1: timeline bank
+        if (i == 3) { setSeqBeats(seqBeats_ + direction); return; } // K2: meter 1..64/4
+        if (i == 4) { adjustSeqNote(direction); return; } // K3: pitch of selected lane
+        if (i == 5) { setProjectTempo(st_.bpm + direction); return; } // K4: Tempo Flex
     }
     if (i == 0) { selectTrack(track_ + (delta > 0 ? 1 : -1)); return; }
     if (i == 6) { browse(delta); return; }
