@@ -212,6 +212,9 @@ struct Session::Impl {
     int seqEditScene = 0, seqActiveScene = 0;
     bool seqPerformance = false, seqAudible = true;
     void activateSequencer(int slot) {
+        // Prevent the tail of the previously active ONE-SHOT scene from
+        // leaking into the next one. All eight sampler lanes are independent.
+        for (auto& voice : seqSampler) if (voice) voice->allOff();
         seqActiveScene = slot;
         seqAudible = slot >= 0 && slot < Session::kSeqScenes;
         if (seqAudible) {
