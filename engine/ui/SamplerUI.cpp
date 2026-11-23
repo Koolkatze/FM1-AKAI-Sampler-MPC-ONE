@@ -755,8 +755,10 @@ void SamplerUI::sequencerView() {
     button({W_ - 159, 54, 144, 28}, "SELECT SAMPLE", false,
         [this] { openLibrary(); }, 10, true);
     text(300, 68, 10, DIM,
-         fit("TRACK " + std::to_string(app_.seqTrack() + 1) + "  " +
-             app_.seqSampleLabel(app_.seqTrack()), W_ - 495.f, 10), 0, false);
+         fit("T" + std::to_string(app_.seqTrack() + 1) + " " +
+             app_.seqSampleLabel(app_.seqTrack()) +
+             "  STEP " + std::to_string(app_.selectedSeqStep() + 1) +
+             " NOTE " + std::to_string(app_.selectedSeqNote()), W_ - 495.f, 10), 0, false);
     for (int lane = 0; lane < 8; ++lane) {
         const float yy = y0 + lane * rowHeight;
         const Rect label{15, yy, gridX - 21, rowHeight - 3};
@@ -789,7 +791,12 @@ void SamplerUI::sequencerView() {
          std::to_string(std::min(app_.seqBeats() * 4, (app_.seqBank() + 1) * 16)),
          0, true);
     button({228, fy, 72, 34}, "BANK >", false, [this] { app_.moveSeqBank(1); }, 10);
-    text(323, fy + 16, 10, DIM, "K1: TIMELINE  |  SELECT: TRACK  |  WHITE: STEPS  |  BLACK: TRACKS", 0, false);
+    text(313, fy + 16, 9, DIM,
+         "SELECT: TRACK  |  K1: BANK  |  K2: METER  |  K3: NOTE  |  K4: BPM", 0, false);
+    button({W_ - 108, fy + 2, 42, 31}, "N-", false,
+           [this] { app_.adjustSeqNote(-1); }, 11);
+    button({W_ - 60, fy + 2, 42, 31}, "N+", false,
+           [this] { app_.adjustSeqNote(+1); }, 11);
 }
 void SamplerUI::seqTempoView() {
     rrect({0, 0, W_, H_}, 0, BG);
