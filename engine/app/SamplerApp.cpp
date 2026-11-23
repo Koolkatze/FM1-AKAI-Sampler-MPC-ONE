@@ -594,10 +594,10 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
                     (tempoFlexBpm_ - 30.f) / 270.f,
                     [this](int d) { setTempoFlexBpm(tempoFlexBpm_ + (d > 0 ? 1.f : -1.f)); },
                     [this](float v) { setTempoFlexBpm(30.f + cl(v) * 270.f); });
-        k[1] = dial("SEMITONES", fmt("%+d ST", pitchSemis_), (pitchSemis_ + 24) / 48.f,
+        k[1] = dial("SEMITONES", fmt("%+.0f ST", (double)pitchSemis_), (pitchSemis_ + 24) / 48.f,
                     [this](int d) { setPitchSemitones(pitchSemis_ + (d > 0 ? 1 : -1)); },
                     [this](float v) { setPitchSemitones((int)std::lround(cl(v) * 48 - 24)); });
-        k[2] = dial("CENTS", fmt("%+d CT", pitchCents_), (pitchCents_ + 100) / 200.f,
+        k[2] = dial("CENTS", fmt("%+.0f CT", (double)pitchCents_), (pitchCents_ + 100) / 200.f,
                     [this](int d) { setPitchCents(pitchCents_ + (d > 0 ? 1 : -1)); },
                     [this](float v) { setPitchCents((int)std::lround(cl(v) * 200 - 100)); });
         k[3] = dial("PITCHED TEMPO", fmt("%.2fX", pitchedTempo_),
