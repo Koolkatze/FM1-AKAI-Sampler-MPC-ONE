@@ -740,6 +740,19 @@ struct FullProjectSettings {
     std::array<std::array<char, 96>, SamplerApp::kTracks> sampleNames{};
 };
 static_assert(std::is_trivially_copyable_v<FullProjectSettings>);
+// Existing APP2 v2/v3 metadata is a prefix of the new app state. Older
+// .fm1p files are still accepted; the new independent samples live in FMP2 v3.
+struct FullProjectSettingsV4 {
+    FullProjectSettings legacy{};
+    uint32_t seqBeats = 4, seqTrack = 0, seqBank = 0;
+    int32_t pitchSemitones = 0, pitchCents = 0;
+    uint8_t seqMode = 0;
+    std::array<uint8_t, SamplerApp::kTracks> seqKits{};
+    std::array<int32_t, SamplerApp::kTracks> seqBaseNotes{};
+    Session::SeqGrid seqNotes{}, seqVelocities{};
+    std::array<std::array<char, 96>, SamplerApp::kTracks> seqSampleNames{};
+};
+static_assert(std::is_trivially_copyable_v<FullProjectSettingsV4>);
 }
 std::string SamplerApp::projectName(int slot) const {
     if (slot < 0 || slot >= Session::kProjectSlots) return "";
@@ -767,7 +780,25 @@ bool SamplerApp::fullProjectExists(int slot) const { return s_.projectExists(slo
 bool SamplerApp::saveFullProject(int slot) {
     if (recordingNow() || mic_ != 0) { say("FINISH RECORDING FIRST"); return false; }
     if (slot < 0 || slot >= Session::kProjectSlots) return false;
-    FullProjectSettings m{};
+    FullProjectSettingsV4 extended{};
+    FullProjectSettings& m = extended.legacy;
+    m.version = 4;
+    m.bytes = sizeof(extended);
+    extended.seqBeats = (uint32_t)seqBeats_;
+    extended.seqTrack = (uint32_t)seqTrack_;
+    extended.seqBank = (uint32_t)seqBank_;
+    extended.pitchSemitones = seqPitchSemitones_;
+    extended.pitchCents = seqPitchCents_;
+    extended.seqMode = seqMode_ ? 1 : 0;
+    extended.seqNotes = seqNotes_;
+    extended.seqVelocities = seqVel_;
+    for (int i = 0; i < kTracks; ++i) {
+        extended.seqKits[(size_t)i] = seqKit_[(size_t)i] ? 1 : 0;
+        extended.seqBaseNotes[(size_t)i] = seqBaseNotes_[(size_t)i];
+        std::snprintf(extended.seqSampleNames[(size_t)i].data(),
+                      extended.seqSampleNames[(size_t)i].size(), "%s",
+                      seqSampleNames_[(size_t)i].c_str());
+    }
     m.tracks = ts_; m.scale = scale_;
     m.reverbSize = reverbSize_; m.reverbWet = reverbDw_;
     m.delayTime = delayTime_; m.delayFeedback = delayFb_;
@@ -794,9 +825,16 @@ bool SamplerApp::saveFullProject(int slot) {
             return false;
         }
     }
-    std::vector<uint8_t> bytes(sizeof(m));
-    std::memcpy(bytes.data(), &m, bytes.size());
-    if (!s_.saveProject(slot, std::move(bytes), sources)) {
+    // The archive embeds both banks of original WAVs, not paths into PACKS.
+    for (const auto& path : seqSamplePaths_) {
+        if (!path.empty() && !std::filesystem::is_regular_file(path)) {
+            say("SEQUENCER SAMPLE SOURCE MISSING");
+            return false;
+        }
+    }
+    std::vector<uint8_t> bytes(sizeof(extended));
+    std::memcpy(bytes.data(), &extended, bytes.size());
+    if (!s_.saveProject(slot, std::move(bytes), sources, seqSamplePaths_)) {
         say("PROJECT BUSY OR INVALID"); return false;
     }
     say("SAVING PROJECT " + std::to_string(slot + 1));
@@ -809,13 +847,20 @@ bool SamplerApp::loadFullProject(int slot) {
     return true;
 }
 void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
-    if (project.appState.size() != sizeof(FullProjectSettings)) {
+    const bool hasSequence = project.appState.size() == sizeof(FullProjectSettingsV4);
+    const bool legacySize = project.appState.size() == sizeof(FullProjectSettings);
+    if (!hasSequence && !legacySize) {
         say("PROJECT SETTINGS INCOMPATIBLE"); return;
     }
+    FullProjectSettingsV4 extended{};
     FullProjectSettings m{};
-    std::memcpy(&m, project.appState.data(), sizeof(m));
-    if (m.magic != 0x32505041 || (m.version != 2 && m.version != 3) ||
-        m.bytes != sizeof(m) || m.songSize > 64 ||
+    if (hasSequence) {
+        std::memcpy(&extended, project.appState.data(), sizeof(extended));
+        m = extended.legacy;
+    } else std::memcpy(&m, project.appState.data(), sizeof(m));
+    if (m.magic != 0x32505041 ||
+        (hasSequence ? m.version != 4 : (m.version != 2 && m.version != 3)) ||
+        m.bytes != project.appState.size() || m.songSize > 64 ||
         m.selectedTrack < 0 || m.selectedTrack >= kTracks ||
         m.page < 0 || m.page >= kPages || m.selectedScene < 0 ||
         m.selectedScene >= Session::kScenes || m.selectedSongStep < -1 ||
@@ -859,6 +904,42 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
         trackSourceNames_[(size_t)i] = title;
     }
     refreshLibrary();
+    if (hasSequence) {
+        if (extended.seqBeats < 1 || extended.seqBeats > 64 ||
+            extended.seqTrack >= kTracks || extended.seqBank > 15 ||
+            extended.seqMode > 1 || extended.pitchSemitones < -24 ||
+            extended.pitchSemitones > 24 || extended.pitchCents < -100 ||
+            extended.pitchCents > 100) {
+            say("SEQUENCER PROJECT SETTINGS CORRUPT"); return;
+        }
+        seqBeats_ = (int)extended.seqBeats;
+        seqTrack_ = (int)extended.seqTrack;
+        seqBank_ = std::min((int)extended.seqBank, (seqBeats_ * 4 - 1) / 16);
+        seqMode_ = extended.seqMode != 0;
+        seqPitchSemitones_ = extended.pitchSemitones;
+        seqPitchCents_ = extended.pitchCents;
+        seqNotes_ = extended.seqNotes;
+        seqVel_ = extended.seqVelocities;
+        for (int i = 0; i < kTracks; ++i) {
+            seqBaseNotes_[(size_t)i] = std::clamp(extended.seqBaseNotes[(size_t)i], 0, 127);
+            seqKit_[(size_t)i] = extended.seqKits[(size_t)i] != 0;
+            seqSamplePaths_[(size_t)i] = project.seqSamplePaths[(size_t)i];
+            const auto& name = extended.seqSampleNames[(size_t)i];
+            seqSampleNames_[(size_t)i] = std::string(name.data(),
+                std::find(name.begin(), name.end(), char(0)));
+            if (!seqSamplePaths_[(size_t)i].empty())
+                s_.loadSeqSamplePath(seqSamplePaths_[(size_t)i], seqKit_[(size_t)i], i, seqBaseNotes_[(size_t)i]);
+            else s_.clearSeqSample(i);
+        }
+        applySeqPattern();
+    } else {
+        seqMode_ = false;
+        seqBeats_ = 4; seqTrack_ = seqBank_ = 0;
+        seqPitchSemitones_ = seqPitchCents_ = 0;
+        seqVel_ = {}; seqNotes_ = {};
+        initSeqDefaults();
+        applySeqPattern();
+    }
     for (int i = 0; i < kTracks; ++i) {
         const auto& path = trackSourcePaths_[(size_t)i];
         if (path.empty()) s_.clearSample(i);
