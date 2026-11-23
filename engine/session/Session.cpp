@@ -791,7 +791,7 @@ struct Session::Impl {
         const int32_t p0 = (int32_t)pos;
         const bool tl = playing && !freeRec && loopSamples > 0;
         if (!offlineRender) updateLoopPeaks();
-        const double spd = tapeSpeed.load();
+        const double spd = tapeSpeed.load() * pitchedTempo;
         if (!playing) { rate = 1.0; stopping = false; }
         bool ramp = false; double rateSum = n, tapeEnd = tapePos;
         const bool scrubbing = (scrubActive || scrubTail) && loopSamples > 0 && !freeRec;
@@ -1161,8 +1161,9 @@ void Session::setGlobalPitch(float semis, float cents) {
 void Session::setPitchedTempo(float ratio) {
     if (!std::isfinite(ratio)) return;
     ratio = std::max(.25f, std::min(2.f, ratio));
+    // Keep the original Tape SPEED knob independent: Pitched Tempo multiplies
+    // the playback rate at render time and never overwrites that setting.
     d->post([this, ratio] { d->pitchedTempo = ratio; d->a_bpm = d->bpm * ratio; });
-    setLoopSpeed(ratio);
 }
 
 
@@ -1276,7 +1277,7 @@ void Session::loopHalve() {
 void Session::scrubBegin(float f) {
     d->post([this, f] {
         if (d->loopSamples <= 0 || d->freeRec) return;
-        if (!d->scrubActive && !d->scrubTail) { d->scrubPos = d->tapePos; d->scrubV = d->playing && !d->stopping ? d->rate * d->tapeSpeed.load() : 0.0; }
+        if (!d->scrubActive && !d->scrubTail) { d->scrubPos = d->tapePos; d->scrubV = d->playing && !d->stopping ? d->rate * d->tapeSpeed.load() * d->pitchedTempo : 0.0; }
         if (d->stopping) { d->playing = false; d->stopping = false; }
         d->scrubActive = true; d->scrubTail = false; d->scrubTarget.store(clampf(f, 0.f, 0.9999f) * d->loopSamples);
     });
@@ -1456,7 +1457,7 @@ bool Session::exportLoops(const std::string& directory) {
         Impl::LoopExportSnapshot snap;
         snap.sampleRate = d->sr;
         snap.loopSamples = d->loopSamples;
-        snap.tapeSpeed = d->tapeSpeed.load();
+        snap.tapeSpeed = d->tapeSpeed.load() * d->pitchedTempo;
         snap.masterVolume = d->masterVol;
         snap.returns[0] = d->ret[0]; snap.returns[1] = d->ret[1];
         snap.reverbSize = d->reverbSize;
@@ -1612,7 +1613,7 @@ bool Session::exportSong(const std::string& directory) {
         Impl::LoopExportSnapshot fx;
         fx.sampleRate = d->sr;
         fx.masterVolume = d->masterVol;
-        fx.tapeSpeed = d->tapeSpeed.load();
+        fx.tapeSpeed = d->tapeSpeed.load() * d->pitchedTempo;
         fx.returns[0] = d->ret[0]; fx.returns[1] = d->ret[1];
         fx.reverbSize = d->reverbSize;
         fx.delaySeconds = d->delaySeconds;
