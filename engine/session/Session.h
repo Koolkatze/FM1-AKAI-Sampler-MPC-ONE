@@ -28,6 +28,7 @@ public:
         int loopBars;
         int seqStep, seqBeats;
         bool sequencerEnabled;
+        bool flexProcessing;  // true while pitch-preserving loop render is pending
         float master_peak;
         float track_peak[kTracks];
         bool track_has_clip[kTracks], track_clip_rec[kTracks];
