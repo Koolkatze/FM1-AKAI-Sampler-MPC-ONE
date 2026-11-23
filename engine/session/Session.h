@@ -73,7 +73,7 @@ public:
     // same transport/BPM as the looper but its samples and clips never overlap.
     void setSequencerEnabled(bool on);
     void setSequencerBeats(int beats);           // numerator 1..64, denominator 4
-    void setSequencerStep(int track, int step, int velocity); // 0 or 1..127
+    void setSequencerStep(int track, int step, int velocity, int note = 60); // velocity 0..127, note 0..127
     void loadSequencerSamplePath(const std::string& path, int track);
     void clearSequencerSample(int track);
     void setMasterBpm(float bpm);
