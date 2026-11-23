@@ -1496,15 +1496,29 @@ void SamplerApp::leds() {
     uint64_t m = 0;
     const bool blinkFast = (nowMs_ / 250) & 1, blinkSlow = (nowMs_ / 500) & 1;
     static const int pageBtn[] = {HOME, FX, ENV, LFO, ARP, SEQ, EDIT, GLO, SAVE, SEL};
-    m |= 1ull << pageBtn[page_];
+    m |= 1ull << (seqMode_ ? SEQ : pageBtn[page_]);
     if (st_.playing) m |= 1ull << PLAY;
     if (st_.freeRecording || st_.track_clip_rec[track_] || mic_ == 2) { if (blinkFast) m |= 1ull << REC; }
     else if (st_.freeArmed || mic_ == 1) { if (blinkSlow) m |= 1ull << REC; }
     else if (loopAny_) m |= 1ull << REC;
     // keys follow the tonality: the keyboard stays chromatic, only the keys that belong to the scale light, the root of each octave blinks slowly;
     // with the scale OFF only the root keys light. A sounding key goes dark.
+    int white = 0, black = 0;
     for (int k = 0; k < 27; k++) {
         const int raw = 53 + k, note = raw + 12 * scale_.octave, pc = ((note - scale_.root) % 12 + 12) % 12;
+        const int pitchClass = raw % 12;
+        const bool blackKey = pitchClass == 1 || pitchClass == 3 || pitchClass == 6 ||
+                              pitchClass == 8 || pitchClass == 10;
+        if (seqMode_) {
+            const int step = seqBank_ * 16 + white;
+            const bool lit = blackKey
+                ? black < kTracks && black == seqTrack_
+                : white < 16 && seqStep(seqTrack_, step);
+            const bool head = !blackKey && step == st_.seqStep && st_.playing;
+            if ((head ? blinkFast : lit)) m |= 1ull << (14 + k);
+            if (blackKey) ++black; else ++white;
+            continue;
+        }
         bool on = ts_[track_].algo == 3 ? true : scale_.scale < 7 ? scaleIndex(pc, scale_.scale) >= 0 : pc == 0;   // KIT: every key is a pad
         if (on && pc == 0 && scale_.scale < 7 && ts_[track_].algo != 3) on = blinkSlow;
         if (keyCount_[raw]) on = false;
@@ -1527,6 +1541,32 @@ void SamplerApp::draw(uint32_t now) {
     if (heroKind != lastHero) { lastHero = heroKind; needClear_ = true; }
     if (needClear_) { fwDirty_ = true; clear(BLACK); std::fill(cells_.begin(), cells_.end(), SurfaceCell()); std::fill(rects_.begin(), rects_.end(), ~0ull); needResend_ = false; }
     else if (needResend_) { needResend_ = false; std::fill(cells_.begin(), cells_.end(), SurfaceCell()); std::fill(rects_.begin(), rects_.end(), ~0ull); }
+    if (seqMode_) {
+        // The physical LCD follows the same two-colour and orange theme as
+        // Android, with the active lane, 16 visible steps and BPM.
+        drawText(0, 8, 8, 2, ACCENT, BLACK, "SEQUENCER", 12);
+        drawText(1, 8, 31, 1, PAPER, BLACK,
+                 fmt("%.1f BPM", st_.bpm) + "   " +
+                 std::to_string(seqBeats_) + "/4", 38);
+        for (int lane = 0; lane < kTracks; ++lane) {
+            const int y = 49 + lane * 20;
+            rect(10 + lane, 7, y, 68, 17, lane == seqTrack_ ? BAR : BLACK);
+            drawText(20 + lane, 9, y + 3, 1,
+                     lane == seqTrack_ ? ACCENT : PAPER,
+                     lane == seqTrack_ ? BAR : BLACK, seqLabel(lane), 11);
+            for (int j = 0; j < 16; ++j) {
+                const int st = seqBank_ * 16 + j;
+                const bool active = seqStep(lane, st);
+                const bool cursor = st_.playing && st_.seqStep == st;
+                const uint16_t color = cursor ? PAPER : active ? ACCENT : (j % 4 ? BAR : DIM);
+                rect(40 + lane * 16 + j, 78 + j * 9, y + 4, 7, 9, color);
+            }
+        }
+        drawText(2, 8, 219, 1, DIM, BLACK,
+                 "K1 BANK " + std::to_string(seqBank_ + 1) + "   SEL TRACK", 38);
+        needClear_ = false;
+        return;
+    }
     char b[96];
     const Knobs k = knobs();
     // header: the track number and the sample name, the transport state as the same pictogram as on the phone
