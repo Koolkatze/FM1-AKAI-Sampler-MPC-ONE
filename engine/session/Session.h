@@ -29,6 +29,7 @@ public:
         int seqStep;           // audio-clocked playhead (0..beats*4-1)
         int seqBeats;          // 1/4..64/4, independent of loop length
         bool seqEnabled;
+        uint32_t seqLoadedMask;   // 8 independent sampler instruments loaded
         bool projectTransformBusy;   // background WSOLA/pitch-render pending
         float master_peak;
         float track_peak[kTracks];
