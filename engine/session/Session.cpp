@@ -2317,6 +2317,7 @@ Session::Status Session::status() const {
     s.bpm = d->a_bpm; s.loopBars = d->a_bars;
     s.seqStep = d->a_seqStep; s.seqBeats = d->a_seqBeats;
     s.sequencerEnabled = d->a_seqEnabled;
+    s.flexProcessing = d->a_flexPending;
     s.master_peak = d->a_master; s.cpu_permille = d->a_cpu;
     const uint32_t cm = d->a_clip_mask, rm = d->a_cliprec_mask;
     for (int i = 0; i < kTracks; i++) {
