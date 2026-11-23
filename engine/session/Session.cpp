@@ -316,19 +316,29 @@ struct Session::Impl {
 
     // Sample-accurate 16th-note clock shared with the looper transport,
     // with eight completely separate one-shot sample voices.
-    void renderSequencer(float* out, int n) {
+    void renderSequencer(float* out, int n, double tapeRate,
+                         const float* tapeRamp, bool scrubbing) {
         const int total = std::max(4, seqBeats * 4);
         std::array<std::pair<int, int>, kBlock> triggers{};
         int triggerCount = 0;
-        if (seqEnabled && playing && !stopping) {
-            const double advance = (double)bpm * pitchedTempo * 4.0 / (60.0 * sr);
+        // Do not restart a 64/4 sequence whenever a shorter looper clip wraps.
+        // Instead integrate the exact tape-head advance, including start/stop
+        // acceleration. With no recorded loop the project BPM drives the clock.
+        if (scrubbing && loopSamples > 0) {
+            seqPhase = std::fmod(tapePos * clipReferenceBpm * 4.0 / (60.0 * sr),
+                                 (double)total);
+            seqLastStep = -1;
+        } else if (seqEnabled && playing) {
+            const double advance = (loopSamples > 0
+                ? clipReferenceBpm * 4.0 * tapeRate
+                : bpm * pitchedTempo * 4.0) / (60.0 * sr);
             for (int i = 0; i < n; ++i) {
                 const int step = (int)seqPhase % total;
                 if (step != seqLastStep && triggerCount < kBlock) {
                     triggers[(size_t)triggerCount++] = {i, step};
                     seqLastStep = step;
                 }
-                seqPhase += advance;
+                seqPhase += advance * (tapeRamp ? tapeRamp[(size_t)i] : 1.0);
                 if (seqPhase >= total) seqPhase = std::fmod(seqPhase, (double)total);
             }
         }
@@ -1141,7 +1151,8 @@ struct Session::Impl {
         a_clipPos.store(loopSamples > 0 ? (float)((cueAudible && cueActive ? cueCpArr[(size_t)n - 1] : tapePos) / loopSamples) : 0.f);
         // Extra sequencer lanes are mixed into master, never into the eight
         // looper track buses, clips, stems, scenes or overdub recorders.
-        renderSequencer(out, n);
+        renderSequencer(out, n, spd, ramp && !scrubbing ? rateArr.data() : nullptr,
+                        scrubbing);
         reverb.process(sendBus[0].data(), wet.data(), n);
         for (int i = 0; i < n * 2; i++) out[i] += wet[(size_t)i] * ret[0];
         delay.process(sendBus[1].data(), wet.data(), n);
