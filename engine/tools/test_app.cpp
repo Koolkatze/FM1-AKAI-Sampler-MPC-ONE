@@ -707,11 +707,36 @@ int main() {
         const auto originalSample1 = app.sampleLabel(1);
         CHECK(app.status().track_has_clip[0] && app.status().track_has_clip[1],
               "two COMPOSE recordings are present before full-project save");
+        // V4 projects must persist the *independent* 8-lane sequencer,
+        // including its audio asset, pitched bass note and uncommon meter.
+        app.enterSequencer();
+        app.selectSequencerTrack(5);
+        app.setSequencerBeats(11);
+        app.setSequencerPage(2);
+        app.sequencerSetStepNote(39, 47); // bass-compatible per-step pitch
+        app.sequencerToggleStep(39);
+        const auto seqPath = app.library().empty() ? std::string() : app.library()[0].path;
+        if (!app.library().empty()) app.loadEntry(0);
+        const std::string seqName = app.sequencerSoundName(5);
+        app.setPitchSemitones(-3);
+        app.setPitchCents(17);
+        app.setPitchedTempo(1.10f);
+        app.setTempoFlexBpm(134.f);
+        app.exitSequencer();
+        run(.20);
         CHECK(app.saveFullProject(0), "Save Full Project starts asynchronous FMP2 snapshot");
         for (int spin = 0; spin < 20 && app.fullProjectOperation() == 1; ++spin) run(0.14);
         CHECK(app.fullProjectOperation() == 2 && app.fullProjectExists(0) &&
               std::filesystem::file_size("/tmp/fm1sampler_t2/project_1.fm1p") > 100000,
               "project slot 1 contains a real self-contained archive with audio");
+        // Mutate all sequencer state, then load; restored data must win.
+        app.enterSequencer();
+        app.selectSequencerTrack(5);
+        app.sequencerToggleStep(39);
+        app.setSequencerBeats(4);
+        app.setPitchSemitones(0); app.setPitchCents(0);
+        app.setPitchedTempo(1.f); app.setTempoFlexBpm(120.f);
+        app.exitSequencer();
         app.setAlgo(5); app.selectScene(0); app.deleteScene(); run(0.25);
         app.loopClear(); run(0.25);
         CHECK(!app.status().track_has_clip[0] && !app.status().track_has_clip[1],
@@ -722,6 +747,17 @@ int main() {
         CHECK(app.fullProjectOperation() == 4 &&
               app.status().track_has_clip[0] && app.status().track_has_clip[1],
               "project load restores both independent recorded COMPOSE loops");
+        CHECK(app.sequencerBeats() == 11 &&
+              app.sequencerHit(5, 39).velocity > 0 &&
+              app.sequencerHit(5, 39).note == 47 &&
+              app.sequencerSoundName(5) == seqName &&
+              app.pitchSemitones() == -3 && app.pitchCents() == 17 &&
+              std::fabs(app.pitchedTempo() - 1.10f) < .001f &&
+              std::fabs(app.tempoFlexBpm() - 134.f) < .1f,
+              "v4 project restores sequencer meter, steps, bass notes, source and tempo/pitch");
+        CHECK(seqPath.empty() ||
+              std::filesystem::is_regular_file("/tmp/fm1sampler_t2/project_assets/slot_1/seq_track_6.wav"),
+              "v4 project embeds independent sequencer source WAV, not just its file name");
         CHECK(app.status().sceneMask == originalSceneMask &&
               app.songOrder() == originalSong,
               "project load restores all scenes and exact song arrangement");
