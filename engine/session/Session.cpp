@@ -226,6 +226,7 @@ struct Session::Impl {
     double rate = 1.0; bool stopping = false; std::vector<float> rateArr; std::vector<double> cpArr;
     // scrubbing with a finger: the tape follows the target position with a smoothed speed (forward and backward), like a hand on the reel
     bool scrubActive = false, scrubTail = false; double scrubPos = 0, scrubV = 0; std::atomic<double> scrubTarget{0};
+    float scrubFilter = 0.f, scrubLastL = 0.f, scrubLastR = 0.f;
     float bpm = 120.f; int loopBars = 4;
     double pos = 0; int32_t loopSamples = 0;
     std::atomic<float> tapeSpeed{1.f}; double tapePos = 0;   // ONE tape pointer for every loop clip, so they never drift apart
@@ -1162,7 +1163,20 @@ struct Session::Impl {
         delay.process(sendBus[1].data(), wet.data(), n);
         for (int i = 0; i < n * 2; i++) out[i] += wet[(size_t)i] * ret[1];
         float mp = 0.f;
-        for (int i = 0; i < n * 2; i++) { const float v = std::tanh(out[i] * masterVol); out[i] = v; mp = std::max(mp, std::fabs(v)); }
+        for (int i = 0; i < n; ++i) {
+            float l = std::tanh(out[2 * i] * masterVol);
+            float r = std::tanh(out[2 * i + 1] * masterVol);
+            // Scrubbing follows a potentially fast, discontinuous read head.
+            // A short smoothed, tape-like low-pass suppresses discontinuities
+            // without filtering ordinary playback or stored loop PCM.
+            scrubFilter += ((scrubbing ? 1.f : 0.f) - scrubFilter) * .02f;
+            const float alpha = 1.f - .91f * scrubFilter;
+            scrubLastL += (l - scrubLastL) * alpha;
+            scrubLastR += (r - scrubLastR) * alpha;
+            l = scrubLastL; r = scrubLastR;
+            out[2 * i] = l; out[2 * i + 1] = r;
+            mp = std::max(mp, std::max(std::fabs(l), std::fabs(r)));
+        }
         a_master.store(std::max(mp, a_master.load() * 0.92f));
         if (playing) {
             // Scene boundaries and the sequencer follow actual tape movement.
