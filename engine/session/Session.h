@@ -74,6 +74,9 @@ public:
     // All edits are queued for the next audio block; no disk work on the audio thread.
     void setSeqBeats(int numerator);  // n/4, n = 1..64
     void setSeqStep(int lane, int step, int note, int velocity); // velocity=0 clears
+    using SeqGrid = std::array<std::array<uint8_t, kSeqMaxSteps>, kSeqTracks>;
+    void replaceSeqPattern(const SeqGrid& notes, const SeqGrid& velocities);
+    void clearSeqSample(int lane);
     void setSeqEnabled(bool on);
     void loadSeqSamplePath(const std::string& path, bool kit, int lane, int triggerNote = 60);
     void setSeqPitch(float semitones); // global tuning, clock unaffected
