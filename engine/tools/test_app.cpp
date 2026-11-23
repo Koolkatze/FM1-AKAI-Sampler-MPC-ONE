@@ -47,6 +47,31 @@ int main() {
         app.enterSequencer();
         CHECK(app.sequencerMode() && app.page() == SamplerApp::P_STEP,
               "SEQUENCER opens independently of the original tape deck");
+        // Both UI themes must render the *same* sequencer grid, buttons and
+        // global tempo controls with the original dynamically selected palette.
+        {
+            SamplerUI themeUI(app);
+            themeUI.setSize(860, 400, 0, 0);
+            for (bool light : {true, false}) {
+                theme::apply(light);
+                themeUI.frame(now + (light ? 1 : 2));
+                int lanes = 0;
+                bool modeTitle = false, bpmTitle = false, lengthLabel = false;
+                for (const auto& op : themeUI.ops()) {
+                    if (op.type != UiOp::TEXT) continue;
+                    if (op.text.find("8 EXTRA TRACKS") != std::string::npos) modeTitle = true;
+                    if (op.text.find("BPM") != std::string::npos) bpmTitle = true;
+                    if (op.text.find("1/16 STEPS") != std::string::npos) lengthLabel = true;
+                    if (op.text.rfind("T", 0) == 0 && op.text.size() > 1 &&
+                        op.text[1] >= '1' && op.text[1] <= '8') ++lanes;
+                }
+                CHECK(modeTitle && bpmTitle && lengthLabel && lanes == 8,
+                      "%s mode keeps original sequencer design with 8 lanes, BPM and steps",
+                      light ? "LIGHT" : "DARK");
+                themeUI.openProject(false);
+            }
+            theme::apply(true);
+        }
         app.setSequencerBeats(64);
         app.selectSequencerTrack(7);
         app.setSequencerPage(15);
