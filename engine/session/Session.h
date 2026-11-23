@@ -136,9 +136,11 @@ public:
         int slot = -1;
         std::vector<uint8_t> appState;
         std::array<std::string, kTracks> samplePaths;
+        std::array<std::string, kSeqTracks> seqSamplePaths;
     };
     bool saveProject(int slot, std::vector<uint8_t> appState,
-                     const std::array<std::string, kTracks>& samplePaths);
+                     const std::array<std::string, kTracks>& samplePaths,
+                     const std::array<std::string, kSeqTracks>& seqSamplePaths = {});
     bool loadProject(int slot);
     bool takeLoadedProject(LoadedProject& output);
     bool projectExists(int slot) const;
