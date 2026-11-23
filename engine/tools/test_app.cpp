@@ -766,7 +766,7 @@ int main() {
         const auto originalSample1 = app.sampleLabel(1);
         CHECK(app.status().track_has_clip[0] && app.status().track_has_clip[1],
               "two COMPOSE recordings are present before full-project save");
-        // V4 projects must persist the *independent* 8-lane sequencer,
+        // V5 projects must persist all eight independent full-pattern scenes,
         // including its audio asset, pitched bass note and uncommon meter.
         app.enterSequencer();
         app.selectSequencerTrack(5);
@@ -813,7 +813,16 @@ int main() {
               app.pitchSemitones() == -3 && app.pitchCents() == 17 &&
               std::fabs(app.pitchedTempo() - 1.10f) < .001f &&
               std::fabs(app.tempoFlexBpm() - 134.f) < .1f,
-              "v4 project restores sequencer meter, steps, bass notes, source and tempo/pitch");
+              "v5 project restores sequencer meter, steps, bass notes, source and tempo/pitch");
+        CHECK(app.status().sceneSequencers[2] == 2,
+              "full project restores LOOP part D1 -> complete sequencer scene 2");
+        app.selectSequencerScene(1);
+        CHECK(app.sequencerHit(0, 0).velocity > 0 &&
+              app.sequencerBeats() == 4,
+              "v5 project retains a second complete sequencer scene, independent of scene 1");
+        app.selectSequencerScene(0);
+        CHECK(app.sequencerHit(5, 39).note == 47,
+              "switching back after project load restores the first scene note");
         CHECK(seqPath.empty() ||
               std::filesystem::is_regular_file("/tmp/fm1sampler_t2/project_assets/slot_1/seq_track_6.wav"),
               "v4 project embeds independent sequencer source WAV, not just its file name");
