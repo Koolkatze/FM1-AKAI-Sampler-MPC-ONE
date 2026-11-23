@@ -18,7 +18,7 @@ void setPalette(bool light) {
     if (light) { BLACK = rgb(241, 239, 233); PAPER = rgb(17, 17, 17); DIM = rgb(154, 150, 140); BAR = rgb(214, 211, 201); ACCENT = rgb(255, 90, 10); }
     else { BLACK = rgb(0, 0, 0); PAPER = rgb(255, 255, 255); DIM = rgb(106, 106, 106); BAR = rgb(42, 42, 42); ACCENT = rgb(255, 106, 31); }
 }
-const char* kPage[] = {"SAMPLE", "FX", "ENVELOPE", "LFO", "ARP", "TAPE", "MIXER", "KEY", "LOOP", "LENGTH", "NOTE REPEAT"};
+const char* kPage[] = {"SAMPLE", "FX", "ENVELOPE", "LFO", "ARP", "TAPE", "MIXER", "KEY", "LOOP", "LENGTH", "NOTE REPEAT", "SEQUENCER"};
 const char* kAlgo[] = {"MELODIC", "ONE-SHOT", "LOOPED", "KIT/SLICE", "GRANULAR", "PAULSTRETCH"};
 const char* kScaleName[] = {"CHROM", "MIX", "MAJ", "MIN", "HMIN", "PHRYG", "MIN+", "OFF"};
 const char* kNote[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
@@ -79,6 +79,76 @@ SamplerApp::SamplerApp(Session& s, Send send) : s_(s), send_(std::move(send)) {
     byLabel("Tape Key", 0); byLabel("Acoustic", 1); byLabel("Shiny", 2); byLabel("TrapKit", 3); (void)first;
     for (int t = 0; t < kTracks; t++) applyMix(t);
     if (ts_[0].entry >= 0) libCursor_ = ts_[0].entry;
+    static const char* defaults[kSeqTracks] = {
+        "Kick", "Snare", "Rim", "Tom 1", "Tom 2", "Hihat Open", "Hihat Closed", "Crash"
+    };
+    for (int i = 0; i < kSeqTracks; ++i) {
+        for (auto& step : seqGrid_[(size_t)i]) step.note = 60;
+        seqSourceNames_[(size_t)i] = defaults[i];
+        const auto source = (std::filesystem::path(s_.sampleDir()) / "OFFICIAL" /
+                             "SEQUENCER" / (std::string(defaults[i]) + ".wav")).string();
+        if (std::filesystem::is_regular_file(source)) {
+            seqSourcePaths_[(size_t)i] = source;
+            s_.loadSequencerSamplePath(source, i);
+        }
+    }
+    s_.setSequencerBeats(seqBeats_);
+    s_.setSequencerEnabled(true);
+}
+
+void SamplerApp::enterSequencer() {
+    sequencerMode_ = true;
+    page_ = P_STEP;
+    needClear_ = true;
+}
+void SamplerApp::exitSequencer() {
+    sequencerMode_ = false;
+    page_ = P_HOME;
+    needClear_ = true;
+}
+void SamplerApp::selectSequencerTrack(int t) {
+    seqTrack_ = std::max(0, std::min(kSeqTracks - 1, t));
+    lastLed_ = ~0ull;
+}
+void SamplerApp::setSequencerPage(int page) {
+    seqPage_ = std::max(0, std::min((seqBeats_ * 4 - 1) / 16, page));
+    lastLed_ = ~0ull;
+}
+void SamplerApp::setSequencerBeats(int beats) {
+    seqBeats_ = std::max(1, std::min(64, beats));
+    setSequencerPage(seqPage_);
+    s_.setSequencerBeats(seqBeats_);
+}
+void SamplerApp::sequencerToggleStep(int step) {
+    if (step < 0 || step >= seqBeats_ * 4) return;
+    seqEditStep_ = step;
+    auto& hit = seqGrid_[(size_t)seqTrack_][(size_t)step];
+    hit.velocity = hit.velocity ? 0 : 108;
+    s_.setSequencerStep(seqTrack_, step, hit.velocity, hit.note);
+    lastLed_ = ~0ull;
+}
+void SamplerApp::sequencerSetStepNote(int step, int note) {
+    if (step < 0 || step >= seqBeats_ * 4) return;
+    seqEditStep_ = step;
+    auto& hit = seqGrid_[(size_t)seqTrack_][(size_t)step];
+    hit.note = (uint8_t)std::max(0, std::min(127, note));
+    s_.setSequencerStep(seqTrack_, step, hit.velocity, hit.note);
+}
+void SamplerApp::setTempoFlexBpm(float bpm) {
+    tempoFlexBpm_ = std::max(30.f, std::min(300.f, bpm));
+    s_.setMasterBpm(tempoFlexBpm_);
+}
+void SamplerApp::setPitchSemitones(int v) {
+    pitchSemis_ = std::max(-24, std::min(24, v));
+    s_.setGlobalPitch((float)pitchSemis_, (float)pitchCents_);
+}
+void SamplerApp::setPitchCents(int v) {
+    pitchCents_ = std::max(-100, std::min(100, v));
+    s_.setGlobalPitch((float)pitchSemis_, (float)pitchCents_);
+}
+void SamplerApp::setPitchedTempo(float ratio) {
+    pitchedTempo_ = std::max(.25f, std::min(2.f, ratio));
+    s_.setPitchedTempo(pitchedTempo_);
 }
 
 // ---- library ----
@@ -290,6 +360,13 @@ void SamplerApp::loadEntry(int i) {
     if (i < 0 || i >= (int)lib_.size()) return;
     libCursor_ = i; auditionAt_ = 0;
     const Entry& e = lib_[(size_t)i];
+    if (sequencerMode_) {
+        seqSourcePaths_[(size_t)seqTrack_] = e.path;
+        seqSourceNames_[(size_t)seqTrack_] = e.label;
+        s_.loadSequencerSamplePath(e.path, seqTrack_);
+        say("SEQ " + std::to_string(seqTrack_ + 1) + ": " + e.label);
+        return;
+    }
     trackSourcePaths_[(size_t)track_] = e.path;
     trackSourceNames_[(size_t)track_] = e.label;
     TrackState& t = ts_[track_];
@@ -373,7 +450,11 @@ void SamplerApp::selectTrack(int t) {
     track_ = t;
     if (ts_[t].entry >= 0) libCursor_ = ts_[t].entry;   // PRESETS starts from the sample this track plays
 }
-void SamplerApp::gotoPage(Page p) { page_ = p; }
+void SamplerApp::gotoPage(Page p) {
+    if (p == P_STEP) { enterSequencer(); return; }
+    sequencerMode_ = false;
+    page_ = p;
+}
 
 SamplerApp::Knob SamplerApp::cont(const char* name, float* v, std::function<std::string(float)> f, std::function<void()> apply, float stepSize, bool commit) {
     Knob k; k.name = name; k.valid = true; k.norm = *v; k.value = f(*v);
