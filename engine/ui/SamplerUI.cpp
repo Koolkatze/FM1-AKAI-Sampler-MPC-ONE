@@ -747,8 +747,8 @@ void SamplerUI::sequencerView() {
            [this] { openLibrary(); }, 10);
     button({260, 9, 123, 31}, "TEMPO / PITCH", tempoOpen_,
            [this] { tempoOpen_ = true; }, 9);
-    text(W_ - 16, 25, 16, TEXT,
-         "SEQUENCER  " + num("%.0f BPM", st_.bpm), 2, true);
+    text(W_ - 16, 25, 16, st_.flexProcessing ? ACCENT : TEXT,
+         "SEQUENCER  " + num("%.0f BPM", st_.bpm) + (st_.flexProcessing ? "  FLEX..." : ""), 2, true);
 
     const float x0 = 198.f, right = W_ - 14.f;
     const float gridW = std::max(150.f, right - x0);
