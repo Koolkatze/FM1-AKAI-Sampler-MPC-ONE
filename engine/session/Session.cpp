@@ -664,8 +664,10 @@ struct Session::Impl {
         a_compositionValid = composition.valid;
         scenes = std::move(s.savedScenes); songOrder = std::move(s.arrangement);
         activeScene = s.active; pendingScene = s.queued;
-        seqPerformance = s.active >= 0;
-        activateSequencer(seqPerformance ? (scenes[(size_t)s.active].seqScene ? (int)scenes[(size_t)s.active].seqScene - 1 : -1) : seqEditScene);
+        seqPerformance = s.hasCompose || s.active >= 0;
+        activateSequencer(s.active >= 0 && scenes[(size_t)s.active].seqScene
+            ? (int)scenes[(size_t)s.active].seqScene - 1
+            : seqPerformance ? -1 : seqEditScene);
         pendingAt = s.pendingAt; songPlaying = s.songPlaying; songStep = s.songStep;
         sceneFadeFrames = std::max(1, sr / 180);
         updateSceneMask();
@@ -1370,7 +1372,7 @@ void Session::loadSequencerSamplePath(const std::string& path, int track) {
         if (!prepared->load(path)) return;
         prepared->setMode(Sampler::ONESHOT);
         auto holder = std::make_shared<std::unique_ptr<Sampler>>(std::move(prepared));
-        d->post([this, track, holder] {
+        d->post([this, track, holder, path] {
             auto& dst = d->seqSampler[(size_t)track];
             d->seqSourcePaths[(size_t)track] = path;
             std::swap(dst, *holder);
