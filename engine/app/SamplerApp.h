@@ -55,6 +55,8 @@ public:
     int seqBeats() const { return seqBeats_; }
     void setSeqBeats(int n);
     int seqBank() const { return seqBank_; }
+    int selectedSeqStep() const { return seqEditStep_; }
+    int selectedSeqNote() const { return seqNotes_[(size_t)seqTrack_][(size_t)seqEditStep_]; }
     void moveSeqBank(int direction);
     bool seqStep(int lane, int index) const;
     int seqStepNote(int lane, int index) const;
@@ -241,7 +243,7 @@ private:
     std::array<TrackState, kTracks> ts_;
     // Independent sequencer: 16 visible pads per bank, 1..64 quarter beats.
     bool seqMode_ = false;
-    int seqTrack_ = 0, seqBeats_ = 4, seqBank_ = 0;
+    int seqTrack_ = 0, seqBeats_ = 4, seqBank_ = 0, seqEditStep_ = 0;
     int seqPitchSemitones_ = 0, seqPitchCents_ = 0;
     float pitchedTempoSemitones_ = 0.f;
     std::array<std::array<uint8_t, kSeqMaxSteps>, kTracks> seqVel_{};
