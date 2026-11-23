@@ -108,7 +108,7 @@ int main() {
         app.sequencerToggleStep(26);
         CHECK(app.sequencerHit(0, 26).velocity > 0 && app.sequencerBeats() == 7,
               "SEQ SCENE 2 retains its own 7/4 pattern and full eight-lane grid");
-        app.knobs(SamplerApp::P_STEP)[3].step(-1); // K4 selects whole scene, not a lane
+        enc(5, -1); // Physical FM-1 K4 selects whole scene, not a lane
         CHECK(app.sequencerScene() == 0 && app.sequencerHit(0, 0).velocity == originalVelocity &&
               app.sequencerBeats() == 4,
               "K4 restores SEQ SCENE 1 with its original steps and signature");
