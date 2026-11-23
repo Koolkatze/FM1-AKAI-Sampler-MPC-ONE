@@ -1366,12 +1366,22 @@ void Session::setRetLevel(int w, float v) { d->post([=] { d->ret[w & 1] = clampf
 
 // ---- looper ----
 void Session::freeRecord(int t, bool on) { if (t >= 0 && t < kTracks) d->post([=] { if (on) d->freeStart(t); else d->freeStop(); }); }
-void Session::clipRecord(int t, bool on) { if (t >= 0 && t < kTracks) d->post([=] { auto& tr = *d->tracks[(size_t)t]; if (on && !tr.clip.unique()) tr.clip = std::make_shared<std::vector<float>>(*tr.clip); tr.clipRec = on; }); }
+void Session::clipRecord(int t, bool on) {
+    if (t < 0 || t >= kTracks) return;
+    d->post([this, t, on] {
+        auto& tr = *d->tracks[(size_t)t];
+        if (on && !tr.clip.unique())
+            tr.clip = std::make_shared<std::vector<float>>(*tr.clip);
+        tr.clipRec = on;
+        if (on) { ++d->flexTicket; d->a_flexPending = false; }
+        else d->refreshLoopProcessing();
+    });
+}
 void Session::clipClear(int t) {
-    if (t >= 0 && t < kTracks) d->post([=] { auto& tr = *d->tracks[(size_t)t]; tr.clipRec = false; tr.clip = std::make_shared<std::vector<float>>(); tr.clipHas = false; d->clearIfEmpty(); });
+    if (t >= 0 && t < kTracks) d->post([=] { auto& tr = *d->tracks[(size_t)t]; tr.clipRec = false; tr.clip = std::make_shared<std::vector<float>>(); tr.clipHas = false; d->clearIfEmpty(); d->refreshLoopProcessing(); });
 }
 void Session::clipClearAll() {
-    d->post([this] { for (auto& t : d->tracks) { t->clipRec = false; t->clip = std::make_shared<std::vector<float>>(); t->clipHas = false; } d->clearIfEmpty(); });
+    d->post([this] { for (auto& t : d->tracks) { t->clipRec = false; t->clip = std::make_shared<std::vector<float>>(); t->clipHas = false; } d->clearIfEmpty(); d->refreshLoopProcessing(); });
 }
 void Session::loopDouble() {
     d->post([this] {
@@ -1385,6 +1395,7 @@ void Session::loopDouble() {
         }
         d->loopSamples = L * 2; d->a_loop = d->loopSamples;
         d->loopBars = std::min(32, d->loopBars * 2); d->a_bars = d->loopBars;
+        d->refreshLoopProcessing();
     });
 }
 void Session::loopHalve() {
@@ -1399,6 +1410,7 @@ void Session::loopHalve() {
         d->loopBars = std::max(1, d->loopBars / 2); d->a_bars = d->loopBars;
         if (d->pos >= h) d->pos = std::fmod(d->pos, (double)h);
         if (d->tapePos >= h) d->tapePos = std::fmod(d->tapePos, (double)h);
+        d->refreshLoopProcessing();
     });
 }
 void Session::scrubBegin(float f) {
