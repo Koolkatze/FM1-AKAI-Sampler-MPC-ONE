@@ -769,6 +769,7 @@ int main() {
         // V5 projects must persist all eight independent full-pattern scenes,
         // including its audio asset, pitched bass note and uncommon meter.
         app.enterSequencer();
+        app.selectSequencerScene(0); // write bass note to scene 1, keep scene 2's drums
         app.selectSequencerTrack(5);
         app.setSequencerBeats(11);
         app.setSequencerPage(2);
