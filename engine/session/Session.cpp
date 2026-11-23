@@ -256,6 +256,7 @@ struct Session::Impl {
     std::atomic<bool> a_playing{false}, a_free{false}, a_freeArmed{false}, a_pending{false};
     std::atomic<float> a_master{0.f}, a_freeSec{0.f}, a_sampleSec{0.f}, a_inPeak{0.f}, a_bpm{120.f};
     std::atomic<uint32_t> a_cpu{0}, a_clip_mask{0}, a_cliprec_mask{0};
+    std::atomic<uint32_t> a_seqLoadedMask{0};
     std::atomic<int> a_seqStep{0}, a_seqBeats{4};
     std::atomic<bool> a_seqEnabled{true};
     std::atomic<int> a_bars{4}, a_sampleState{0}, a_sampleTrack{0}, a_sampleVersion{0}, a_sampleFails{0};
@@ -1105,6 +1106,7 @@ void Session::clearSeqSample(int lane) {
     d->post([this, lane] {
         auto& instrument = d->seqLanes[(size_t)lane].sampler;
         d->bury(std::move(instrument));
+        d->a_seqLoadedMask.fetch_and(~(1u << lane));
     });
 }
 void Session::setSeqEnabled(bool on) {
@@ -1246,6 +1248,7 @@ void Session::loadSeqSamplePath(const std::string& path, bool kit, int lane, int
         auto holder = std::make_shared<std::unique_ptr<Sampler>>(std::move(sample));
         d->post([this, lane, holder] {
             std::swap(d->seqLanes[(size_t)lane].sampler, *holder);
+            d->a_seqLoadedMask.fetch_or(1u << lane);
             d->bury(std::move(*holder));
         });
     });
@@ -2257,7 +2260,8 @@ Session::Status Session::status() const {
     s.playing = d->a_playing; s.pos = d->a_pos; s.loopSamples = d->a_loop;
     s.bpm = d->a_bpm; s.loopBars = d->a_bars;
     s.seqStep = d->a_seqStep; s.seqBeats = d->a_seqBeats; s.seqEnabled = d->a_seqEnabled;
-    s.projectTransformBusy = d->transformBusy; s.master_peak = d->a_master; s.cpu_permille = d->a_cpu;
+    s.projectTransformBusy = d->transformBusy;
+    s.seqLoadedMask = d->a_seqLoadedMask; s.master_peak = d->a_master; s.cpu_permille = d->a_cpu;
     const uint32_t cm = d->a_clip_mask, rm = d->a_cliprec_mask;
     for (int i = 0; i < kTracks; i++) {
         s.track_peak[i] = d->tracks[(size_t)i]->peak;
