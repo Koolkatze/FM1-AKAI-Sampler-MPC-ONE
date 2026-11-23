@@ -454,6 +454,7 @@ void SamplerApp::selectSeqTrack(int t) { seqTrack_ = (t % kTracks + kTracks) % k
 void SamplerApp::setSeqBeats(int n) {
     seqBeats_ = std::clamp(n, 1, 64);
     seqBank_ = std::min(seqBank_, (seqBeats_ * 4 - 1) / 16);
+    seqEditStep_ = std::min(seqEditStep_, seqBeats_ * 4 - 1);
     s_.setSeqBeats(seqBeats_);
 }
 void SamplerApp::moveSeqBank(int d) {
@@ -469,20 +470,18 @@ int SamplerApp::seqStepNote(int lane, int index) const {
 }
 void SamplerApp::toggleSeqStep(int lane, int index) {
     if (lane < 0 || lane >= kTracks || index < 0 || index >= seqBeats_ * 4) return;
+    seqEditStep_ = index; // K3 edits this one note, not the other steps
     auto& v = seqVel_[(size_t)lane][(size_t)index];
     v = v ? 0 : 104;
     s_.setSeqStep(lane, index, seqNotes_[(size_t)lane][(size_t)index], v);
 }
 void SamplerApp::adjustSeqNote(int delta) {
-    int& note = seqBaseNotes_[(size_t)seqTrack_];
-    const int next = std::clamp(note + delta, 0, 127);
-    const int change = next - note; note = next;
-    for (int i = 0; i < kSeqMaxSteps; ++i) {
-        auto& n = seqNotes_[(size_t)seqTrack_][(size_t)i];
-        n = (uint8_t)std::clamp((int)n + change, 0, 127);
-        if (seqVel_[(size_t)seqTrack_][(size_t)i])
-            s_.setSeqStep(seqTrack_, i, n, seqVel_[(size_t)seqTrack_][(size_t)i]);
-    }
+    // Melodic bass lines can give each white-key step its own MIDI pitch.
+    // The base sample/root remains unchanged; K3 adjusts only this cell.
+    auto& note = seqNotes_[(size_t)seqTrack_][(size_t)seqEditStep_];
+    note = (uint8_t)std::clamp((int)note + (delta > 0 ? 1 : -1), 0, 127);
+    s_.setSeqStep(seqTrack_, seqEditStep_, note,
+                  seqVel_[(size_t)seqTrack_][(size_t)seqEditStep_]);
 }
 std::string SamplerApp::seqLabel(int lane) const {
     static const char* labels[] = {"KICK", "SNARE", "RIM", "TOM 1", "TOM 2",
@@ -799,7 +798,7 @@ static_assert(std::is_trivially_copyable_v<FullProjectSettings>);
 // .fm1p files are still accepted; the new independent samples live in FMP2 v3.
 struct FullProjectSettingsV4 {
     FullProjectSettings legacy{};
-    uint32_t seqBeats = 4, seqTrack = 0, seqBank = 0;
+    uint32_t seqBeats = 4, seqTrack = 0, seqBank = 0, seqEditStep = 0;
     int32_t pitchSemitones = 0, pitchCents = 0;
     float pitchedTempoSemitones = 0.f;
     uint8_t seqMode = 0;
@@ -843,6 +842,7 @@ bool SamplerApp::saveFullProject(int slot) {
     extended.seqBeats = (uint32_t)seqBeats_;
     extended.seqTrack = (uint32_t)seqTrack_;
     extended.seqBank = (uint32_t)seqBank_;
+    extended.seqEditStep = (uint32_t)seqEditStep_;
     extended.pitchSemitones = seqPitchSemitones_;
     extended.pitchCents = seqPitchCents_;
     extended.pitchedTempoSemitones = pitchedTempoSemitones_;
@@ -964,6 +964,7 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
     if (hasSequence) {
         if (extended.seqBeats < 1 || extended.seqBeats > 64 ||
             extended.seqTrack >= kTracks || extended.seqBank > 15 ||
+            extended.seqEditStep >= kSeqMaxSteps ||
             extended.seqMode > 1 || extended.pitchSemitones < -24 ||
             extended.pitchSemitones > 24 || extended.pitchCents < -100 ||
             extended.pitchCents > 100 ||
@@ -974,6 +975,7 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
         seqBeats_ = (int)extended.seqBeats;
         seqTrack_ = (int)extended.seqTrack;
         seqBank_ = std::min((int)extended.seqBank, (seqBeats_ * 4 - 1) / 16);
+        seqEditStep_ = std::min((int)extended.seqEditStep, seqBeats_ * 4 - 1);
         seqMode_ = extended.seqMode != 0;
         seqPitchSemitones_ = extended.pitchSemitones;
         seqPitchCents_ = extended.pitchCents;
@@ -994,7 +996,7 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
         applySeqPattern();
     } else {
         seqMode_ = false;
-        seqBeats_ = 4; seqTrack_ = seqBank_ = 0;
+        seqBeats_ = 4; seqTrack_ = seqBank_ = seqEditStep_ = 0;
         seqPitchSemitones_ = seqPitchCents_ = 0;
         pitchedTempoSemitones_ = 0.f;
         seqVel_ = {}; seqNotes_ = {};
