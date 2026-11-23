@@ -19,7 +19,7 @@ void setPalette(bool light) {
     if (light) { BLACK = rgb(241, 239, 233); PAPER = rgb(17, 17, 17); DIM = rgb(154, 150, 140); BAR = rgb(214, 211, 201); ACCENT = rgb(255, 90, 10); }
     else { BLACK = rgb(0, 0, 0); PAPER = rgb(255, 255, 255); DIM = rgb(106, 106, 106); BAR = rgb(42, 42, 42); ACCENT = rgb(255, 106, 31); }
 }
-const char* kPage[] = {"SAMPLE", "FX", "ENVELOPE", "LFO", "ARP", "TAPE", "MIXER", "KEY", "LOOP", "LENGTH", "NOTE REPEAT", "SEQUENCER"};
+const char* kPage[] = {"SAMPLE", "FX", "ENVELOPE", "LFO", "ARP", "TAPE", "MIXER", "KEY", "LOOP", "LENGTH", "NOTE REPEAT", "SEQUENCER", "TEMPO / PITCH"};
 const char* kAlgo[] = {"MELODIC", "ONE-SHOT", "LOOPED", "KIT/SLICE", "GRANULAR", "PAULSTRETCH"};
 const char* kScaleName[] = {"CHROM", "MIX", "MAJ", "MIN", "HMIN", "PHRYG", "MIN+", "OFF"};
 const char* kNote[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
@@ -581,6 +581,29 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
         k[2] = act("HALVE", "TURN: /2", false);
         Knob b; b.name = "BARS / BPM"; b.valid = true; b.isChoice = true; b.value = fmt("%.0f", st_.loopBars) + " / " + fmt("%.0f", st_.bpm); b.step = [](int) {}; b.set = [](float) {};
         k[3] = b;
+        break;
+    }
+    case P_TEMPO: {
+        auto dial = [](const char* label, const std::string& value, float norm,
+                       std::function<void(int)> turn, std::function<void(float)> absolute) {
+            Knob a; a.name = label; a.value = value; a.norm = cl(norm);
+            a.valid = true; a.step = std::move(turn); a.set = std::move(absolute);
+            return a;
+        };
+        k[0] = dial("TEMPO FLEX", fmt("%.0f BPM", tempoFlexBpm_),
+                    (tempoFlexBpm_ - 30.f) / 270.f,
+                    [this](int d) { setTempoFlexBpm(tempoFlexBpm_ + (d > 0 ? 1.f : -1.f)); },
+                    [this](float v) { setTempoFlexBpm(30.f + cl(v) * 270.f); });
+        k[1] = dial("SEMITONES", fmt("%+d ST", pitchSemis_), (pitchSemis_ + 24) / 48.f,
+                    [this](int d) { setPitchSemitones(pitchSemis_ + (d > 0 ? 1 : -1)); },
+                    [this](float v) { setPitchSemitones((int)std::lround(cl(v) * 48 - 24)); });
+        k[2] = dial("CENTS", fmt("%+d CT", pitchCents_), (pitchCents_ + 100) / 200.f,
+                    [this](int d) { setPitchCents(pitchCents_ + (d > 0 ? 1 : -1)); },
+                    [this](float v) { setPitchCents((int)std::lround(cl(v) * 200 - 100)); });
+        k[3] = dial("PITCHED TEMPO", fmt("%.2fX", pitchedTempo_),
+                    (pitchedTempo_ - .25f) / 1.75f,
+                    [this](int d) { setPitchedTempo(pitchedTempo_ + (d > 0 ? .05f : -.05f)); },
+                    [this](float v) { setPitchedTempo(.25f + cl(v) * 1.75f); });
         break;
     }
     case P_STEP: {
@@ -1430,7 +1453,7 @@ void SamplerApp::heal() {   // a lost frame leaves a hole nothing would redraw: 
 void SamplerApp::leds() {
     uint64_t m = 0;
     const bool blinkFast = (nowMs_ / 250) & 1, blinkSlow = (nowMs_ / 500) & 1;
-    static const int pageBtn[] = {HOME, FX, ENV, LFO, ARP, SEQ, EDIT, GLO, SAVE, SEL, SEQ, SEQ};
+    static const int pageBtn[] = {HOME, FX, ENV, LFO, ARP, SEQ, EDIT, GLO, SAVE, SEL, SEQ, SEQ, SEQ};
     m |= 1ull << pageBtn[std::max(0, std::min((int)page_, (int)kPages - 1))];
     if (sequencerMode_) {
         static constexpr int whites[] = {53,55,57,59,60,62,64,65,67,69,71,72,74,76,77,79};
