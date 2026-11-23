@@ -7,6 +7,7 @@
 //                      GLO key and scale | SAVE loop save (tap) / clear (hold) | PLAY | REC loop record / overdub
 #pragma once
 #include "../session/Session.h"
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
