@@ -252,6 +252,8 @@ private:
     std::array<std::string, kSeqTracks> seqSourcePaths_{};
     std::array<std::string, kSeqTracks> seqSourceNames_{};
     float tempoFlexBpm_ = 120.f, pitchedTempo_ = 1.f;
+    double observedLoopSamples_ = 0.;
+    int observedScene_ = -1;
     int pitchSemis_ = 0, pitchCents_ = 0;
     // global effects
     float reverbSize_ = 0.7f, reverbDw_ = 0.35f, delayTime_ = 0.4f, delayFb_ = 0.45f;
