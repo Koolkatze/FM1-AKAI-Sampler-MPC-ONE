@@ -45,6 +45,10 @@ int main() {
         const auto original = app.sampleLabel(0);
         CHECK(app.seqSampleLabel(0) == "Kick" && app.seqSampleLabel(7) == "Crash",
               "sequencer initialises eight independent named one-shots");
+        for (int k = 0; k < 80 && (s.status().seqLoadedMask & 1u) == 0u; ++k) run(0.03);
+        CHECK((s.status().seqLoadedMask & 1u) != 0u,
+              "sequencer Kick sample loaded from OFFICIAL library (mask %02x)",
+              s.status().seqLoadedMask);
         app.setSequencerMode(true);
         app.setSeqBeats(64);
         for (int k = 0; k < 15; ++k) app.moveSeqBank(+1);
