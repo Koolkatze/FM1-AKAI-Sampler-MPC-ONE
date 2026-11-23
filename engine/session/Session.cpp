@@ -108,6 +108,11 @@ struct Session::Impl {
         float sliceThr = 0.22f, kitSemis = 0.f, grainScatter = 1.f, paulStretch = 8.f, paulWidth = 1.f; int grainN = 7; std::vector<float> slices;   // mode parameters; slices for the UI (under infoMtx)
         // the audio loop of this track
         std::shared_ptr<std::vector<float>> clip = std::make_shared<std::vector<float>>();  // COW: scene snapshots share loop audio
+        // Processed playback is non-destructive. Originals are still used for
+        // overdubbing, scenes, full-project archives and saved WAV assets.
+        std::shared_ptr<std::vector<float>> flexSource;
+        std::shared_ptr<const std::vector<float>> flexAudio;
+        float flexBpm = 0.f, flexSourceBpm = 0.f, flexPitch = 0.f;
         bool clipHas = false, clipRec = false;
         bool recPrevOk = false; double recPrevCp = 0; float recPrevL = 0, recPrevR = 0;   // tape-speed recording: previous write position and input
         std::atomic<float> peak{0.f};
@@ -201,6 +206,9 @@ struct Session::Impl {
     float seqPitchSemis = 0.f, seqPitchCents = 0.f, pitchedTempo = 1.f;
     bool tempoFlexOverride = false;
     float tempoFlexReference = 120.f;
+    float clipReferenceBpm = 120.f;
+    std::atomic<uint64_t> flexTicket{0};
+    std::atomic<bool> a_flexPending{false};
     std::atomic<int> a_seqStep{0}, a_seqBeats{4};
     std::atomic<bool> a_seqEnabled{true};
     Reverb reverb; TapeDelay delay;
@@ -342,6 +350,92 @@ struct Session::Impl {
             if (cursor < n) voice->render(tmp.data() + 2 * cursor, n - cursor);
             for (int i = 0; i < 2 * n; ++i) out[i] += tmp[(size_t)i] * .78f;
         }
+    }
+
+    // Build pitch-preserving Tempo Flex audio on the existing worker, never
+    // inside the real-time callback. Original loop PCM remains immutable.
+    // Stale worker results cannot replace a newly loaded scene/project/overdub.
+    void refreshLoopProcessing() {
+        const uint64_t ticket = ++flexTicket;
+        const float reference = std::max(30.f, clipReferenceBpm);
+        const double speed = std::max(.10, std::min(10.0, (double)bpm / reference));
+        const double pitch = seqPitchSemis + seqPitchCents / 100.0;
+        for (auto& tr : tracks) { tr->flexAudio.reset(); tr->flexSource.reset(); }
+        if (loopSamples <= 0 || freeRec ||
+            (std::fabs(speed - 1.0) < .002 && std::fabs(pitch) < .002)) {
+            a_flexPending = false;
+            return;
+        }
+        for (const auto& t : tracks) if (t->clipRec) {
+            a_flexPending = false;
+            return;
+        }
+        if (loopSamples / speed > sr * 180.0) {
+            a_flexPending = false;
+            return; // avoid oversized temporary buffers
+        }
+        std::array<std::shared_ptr<std::vector<float>>, kTracks> source{};
+        int count = 0;
+        for (int i = 0; i < kTracks; ++i) {
+            const auto& t = *tracks[(size_t)i];
+            if (t.clipHas && t.clip &&
+                t.clip->size() == (size_t)loopSamples * 2) {
+                source[(size_t)i] = t.clip;
+                ++count;
+            }
+        }
+        if (!count) { a_flexPending = false; return; }
+        const int length = loopSamples, sampleRate = sr;
+        const float targetBpm = bpm;
+        a_flexPending = true;
+        job([this, source, ticket, speed, pitch, length, sampleRate,
+             targetBpm, reference] {
+            std::array<std::shared_ptr<const std::vector<float>>, kTracks> rendered{};
+            try {
+                for (int t = 0; t < kTracks; ++t) {
+                    if (flexTicket.load() != ticket) return;
+                    if (!source[(size_t)t]) continue;
+                    // The WSOLA path preserves pitch while rescaling duration.
+                    // Additional stages cover widely separated original/target BPM.
+                    const std::vector<float>* input = source[(size_t)t].get();
+                    std::vector<float> intermediate;
+                    double remaining = speed;
+                    while (remaining > 4.0) {
+                        intermediate = stretchPitch(*input, sampleRate, 4.0, 0.0);
+                        input = &intermediate; remaining /= 4.0;
+                    }
+                    while (remaining < 0.25) {
+                        intermediate = stretchPitch(*input, sampleRate, 0.25, 0.0);
+                        input = &intermediate; remaining /= 0.25;
+                    }
+                    auto data = stretchPitch(*input, sampleRate, remaining, pitch);
+                    const size_t frames = (size_t)std::max(64.0, std::round(length / speed));
+                    data.resize(frames * 2, 0.f);
+                    rendered[(size_t)t] = std::make_shared<const std::vector<float>>(std::move(data));
+                }
+            } catch (const std::bad_alloc&) {
+                post([this, ticket] { if (flexTicket.load() == ticket) a_flexPending = false; });
+                return;
+            }
+            if (flexTicket.load() != ticket) return;
+            post([this, source, rendered = std::move(rendered), ticket,
+                  length, targetBpm, reference, pitch]() mutable {
+                if (flexTicket.load() != ticket || loopSamples != length ||
+                    std::fabs(bpm - targetBpm) > .001f ||
+                    std::fabs(clipReferenceBpm - reference) > .001f) return;
+                for (int t = 0; t < kTracks; ++t) {
+                    auto& track = *tracks[(size_t)t];
+                    if (source[(size_t)t] != track.clip || track.clipRec) continue;
+                    track.flexSource = source[(size_t)t];
+                    track.flexAudio = std::move(rendered[(size_t)t]);
+                    track.flexBpm = targetBpm;
+                    track.flexSourceBpm = reference;
+                    track.flexPitch = (float)pitch;
+                }
+                sceneFadeFrames = std::max(sceneFadeFrames, std::max(1, sr / 180));
+                a_flexPending = false;
+            });
+        });
     }
 
     void retainComposition() {
