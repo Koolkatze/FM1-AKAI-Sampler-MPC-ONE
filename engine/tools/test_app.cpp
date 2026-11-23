@@ -975,6 +975,70 @@ int main() {
         auto eq = findSlices(std::vector<float>((size_t)N * 2, 0.1f), N, 44100, 16);
         CHECK(eq.size() == 16, "no hits: %zu equal slices", eq.size());
     }
+    {   // Tempo Flex must actually change the duration of RECORDED loops
+        // without raising their acoustic pitch. This is measured from audio,
+        // not just from the number shown in the Tempo UI.
+        Session flex(SAMPLERATE);
+        flex.setDataDir("/tmp/fm1sampler_t2/flex-test");
+        flex.setSampleDir(std::string(getenv("HOME")) + "/fm1-sampler/samples");
+        flex.setLoopSource(0);
+        flex.freeRecord(0, true);
+        std::vector<float> x(512), y(512);
+        double phase = 0.;
+        for (int b = 0; b < 190; ++b) {
+            for (int i = 0; i < 256; ++i) {
+                const float v = 0.33f * std::sin(phase);
+                phase += 2. * M_PI * 220. / SAMPLERATE;
+                x[(size_t)i * 2] = x[(size_t)i * 2 + 1] = v;
+            }
+            flex.process(y.data(), x.data(), 256);
+        }
+        flex.freeRecord(0, false);
+        std::fill(x.begin(), x.end(), 0.f);
+        for (int b = 0; b < 8; ++b) flex.process(y.data(), x.data(), 256);
+        const auto baseBpm = flex.status().bpm;
+        CHECK(flex.status().track_has_clip[0] && baseBpm >= 30.f,
+              "Tempo Flex test starts with a captured 220-Hz recorded audio loop");
+        auto collectHz = [&](int blocks) {
+            // Ignore the first transient; frequency of positive crossings is
+            // stable even if the tape starts near a bar boundary.
+            int crossings = 0;
+            float prev = 0.f;
+            for (int b = 0; b < blocks; ++b) {
+                flex.process(y.data(), x.data(), 256);
+                for (int i = 0; i < 256; ++i) {
+                    const float v = y[(size_t)i * 2];
+                    crossings += prev < 0.f && v >= 0.f;
+                    prev = v;
+                }
+            }
+            return crossings / (blocks * 256.0 / SAMPLERATE);
+        };
+        flex.setMasterBpm(std::min(300.f, baseBpm * 1.2f));
+        flex.process(y.data(), x.data(), 256);
+        for (int k = 0; k < 300 && flex.status().flexProcessing; ++k) {
+            flex.process(y.data(), x.data(), 256);
+            std::this_thread::sleep_for(std::chrono::milliseconds(3));
+        }
+        CHECK(!flex.status().flexProcessing,
+              "WSOLA Tempo Flex worker finishes without changing original loop buffer");
+        const float flexHz = (float)collectHz(75);
+        CHECK(std::fabs(flexHz - 220.f) < 25.f,
+              "Tempo Flex preserves 220-Hz source pitch (%.1f Hz)", flexHz);
+        const float heldBpm = flex.status().bpm;
+        flex.setGlobalPitch(12.f, 0.f);
+        flex.process(y.data(), x.data(), 256);
+        for (int k = 0; k < 300 && flex.status().flexProcessing; ++k) {
+            flex.process(y.data(), x.data(), 256);
+            std::this_thread::sleep_for(std::chrono::milliseconds(3));
+        }
+        CHECK(!flex.status().flexProcessing,
+              "global pitch shift renders non-destructively on background worker");
+        const float shiftedHz = (float)collectHz(75);
+        CHECK(std::fabs(shiftedHz - 440.f) < 45.f &&
+              std::fabs(flex.status().bpm - heldBpm) < .1f,
+              "semitone pitch changes sample pitch, not project BPM (%.1f Hz)", shiftedHz);
+    }
     {   // sidechain: track 2 ducked by track 1, send effects return something
         app.loopClear(); run(0.3);
         for (int tr : {0, 1}) { app.selectTrack(tr); app.setAlgo(2); }
