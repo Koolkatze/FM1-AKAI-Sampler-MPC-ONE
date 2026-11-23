@@ -228,6 +228,7 @@ struct Session::Impl {
         a_seqScene = seqAudible ? slot : -1;
     }
     std::array<std::unique_ptr<Sampler>, Session::kSeqTracks> seqSampler{};
+    std::array<std::string, Session::kSeqTracks> seqSourcePaths{};
     int seqBeats = 4, seqLastStep = -1;
     bool seqEnabled = true;
     double seqPhase = 0.;
@@ -1371,6 +1372,7 @@ void Session::loadSequencerSamplePath(const std::string& path, int track) {
         auto holder = std::make_shared<std::unique_ptr<Sampler>>(std::move(prepared));
         d->post([this, track, holder] {
             auto& dst = d->seqSampler[(size_t)track];
+            d->seqSourcePaths[(size_t)track] = path;
             std::swap(dst, *holder);
             d->bury(std::move(*holder));
         });
@@ -1379,6 +1381,7 @@ void Session::loadSequencerSamplePath(const std::string& path, int track) {
 void Session::clearSequencerSample(int track) {
     if (track < 0 || track >= kSeqTracks) return;
     d->post([this, track] {
+        d->seqSourcePaths[(size_t)track].clear();
         d->bury(std::move(d->seqSampler[(size_t)track]));
     });
 }
@@ -1912,6 +1915,10 @@ bool Session::exportSong(const std::string& directory) {
             d->loopExportOp = -3; return; // no scenes: no file created
         }
         const auto scenes = d->scenes; // shared_ptr copy; no audio-data copy
+        const auto seqBanks = d->seqBanks;
+        const auto seqSourcePaths = d->seqSourcePaths;
+        const bool seqEnabled = d->seqEnabled;
+        const float seqTapePitch = 12.f * std::log2(std::max(.25f, d->pitchedTempo));
         const auto order = d->songOrder;
         const bool flexible = d->tempoFlexOverride;
         const float desiredBpm = d->bpm;
@@ -1976,7 +1983,8 @@ bool Session::exportSong(const std::string& directory) {
             d->loopExportOp = -2; return; // WAV 32-bit RIFF size limit
         }
 
-        d->job([this, directory, scenes, order, sceneFrames, flexible,
+        d->job([this, directory, scenes, seqBanks, seqSourcePaths, seqEnabled,
+                seqTapePitch, order, sceneFrames, flexible,
                 fx, songFrames, tail]() {
             namespace fs = std::filesystem;
             std::error_code ec;
@@ -1987,6 +1995,17 @@ bool Session::exportSong(const std::string& directory) {
             // export; its separate FX state cannot touch the live session.
             Impl bounce(fx.sampleRate, true);
             bounce.scenes = scenes;
+            bounce.seqBanks = seqBanks;
+            bounce.seqEnabled = seqEnabled;
+            bounce.seqPitchSemis = fx.globalPitch + seqTapePitch;
+            for (int t = 0; t < Session::kSeqTracks; ++t) {
+                const auto& path = seqSourcePaths[(size_t)t];
+                if (path.empty()) continue;
+                auto voice = std::make_unique<Sampler>(fx.sampleRate);
+                if (!voice->load(path)) { d->loopExportOp = -2; return; }
+                voice->setMode(Sampler::ONESHOT);
+                bounce.seqSampler[(size_t)t] = std::move(voice);
+            }
             bounce.songOrder = order;
             bounce.songPlaying = true;
             bounce.masterVol = fx.masterVolume;
