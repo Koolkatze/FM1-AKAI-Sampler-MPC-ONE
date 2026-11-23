@@ -160,6 +160,7 @@ struct Session::Impl {
         bool songPlaying = false;
         std::vector<uint8_t> appState;
         std::array<std::string, kTracks> samplePaths;
+        std::array<std::string, Session::kSeqTracks> seqSamplePaths;
     };
     // Only a few primitive settings and shared immutable clip references are
     // copied on the real-time thread. No DSP delay buffers or large WAVs.
@@ -190,6 +191,16 @@ struct Session::Impl {
 
     int sr;
     std::vector<std::unique_ptr<Track>> tracks;
+
+    struct SequencerHit { uint8_t velocity = 0, note = 60; };
+    std::array<std::array<SequencerHit, Session::kSeqMaxSteps>, Session::kSeqTracks> seqGrid{};
+    std::array<std::unique_ptr<Sampler>, Session::kSeqTracks> seqSampler{};
+    int seqBeats = 4, seqLastStep = -1;
+    bool seqEnabled = true;
+    double seqPhase = 0.;
+    float seqPitchSemis = 0.f, seqPitchCents = 0.f, pitchedTempo = 1.f;
+    std::atomic<int> a_seqStep{0}, a_seqBeats{4};
+    std::atomic<bool> a_seqEnabled{true};
     Reverb reverb; TapeDelay delay;
     float masterVol = 0.9f, ret[2] = {0.35f, 0.7f};
     float reverbSize = 0.7f, delaySeconds = 0.4f, delayFeedback = 0.4f;
@@ -291,6 +302,44 @@ struct Session::Impl {
             if (scenes[(size_t)i].filled) mask |= 1u << i;
         }
         a_sceneMask.store(mask);
+    }
+
+    // Sample-accurate 16th-note clock shared with the looper transport,
+    // with eight completely separate one-shot sample voices.
+    void renderSequencer(float* out, int n) {
+        const int total = std::max(4, seqBeats * 4);
+        std::array<std::pair<int, int>, kBlock> triggers{};
+        int triggerCount = 0;
+        if (seqEnabled && playing && !stopping) {
+            const double advance = (double)bpm * 4.0 / (60.0 * sr);
+            for (int i = 0; i < n; ++i) {
+                const int step = (int)seqPhase % total;
+                if (step != seqLastStep && triggerCount < kBlock) {
+                    triggers[(size_t)triggerCount++] = {i, step};
+                    seqLastStep = step;
+                }
+                seqPhase += advance;
+                if (seqPhase >= total) seqPhase = std::fmod(seqPhase, (double)total);
+            }
+        }
+        a_seqStep.store((int)seqPhase % total);
+        for (int t = 0; t < Session::kSeqTracks; ++t) {
+            auto& voice = seqSampler[(size_t)t];
+            if (!voice) continue;
+            std::fill(tmp.begin(), tmp.begin() + 2 * n, 0.f);
+            voice->setBend(seqPitchSemis + seqPitchCents / 100.f
+                           + 12.f * std::log2(std::max(.25f, pitchedTempo)));
+            int cursor = 0;
+            for (int event = 0; event < triggerCount; ++event) {
+                const auto [offset, step] = triggers[(size_t)event];
+                if (offset > cursor) voice->render(tmp.data() + 2 * cursor, offset - cursor);
+                const auto& hit = seqGrid[(size_t)t][(size_t)step];
+                if (hit.velocity) voice->noteOn(hit.note, hit.velocity);
+                cursor = offset;
+            }
+            if (cursor < n) voice->render(tmp.data() + 2 * cursor, n - cursor);
+            for (int i = 0; i < 2 * n; ++i) out[i] += tmp[(size_t)i] * .78f;
+        }
     }
 
     void retainComposition() {
@@ -936,6 +985,9 @@ struct Session::Impl {
             }
         }
         a_clipPos.store(loopSamples > 0 ? (float)((cueAudible && cueActive ? cueCpArr[(size_t)n - 1] : tapePos) / loopSamples) : 0.f);
+        // Extra sequencer lanes are mixed into master, never into the eight
+        // looper track buses, clips, stems, scenes or overdub recorders.
+        renderSequencer(out, n);
         reverb.process(sendBus[0].data(), wet.data(), n);
         for (int i = 0; i < n * 2; i++) out[i] += wet[(size_t)i] * ret[0];
         delay.process(sendBus[1].data(), wet.data(), n);
@@ -1022,6 +1074,73 @@ void Session::play(bool on) {
 }
 void Session::noteOn(int t, int note, int vel) { if (t >= 0 && t < kTracks) d->post([=] { d->liveNote(t, note, std::max(1, vel)); }); }
 void Session::noteOff(int t, int note) { if (t >= 0 && t < kTracks) d->post([=] { d->liveNote(t, note, 0); }); }
+
+// ---- independent step sequencer ----
+void Session::setSequencerEnabled(bool on) {
+    d->post([this, on] {
+        d->seqEnabled = on; d->a_seqEnabled = on;
+        if (on) d->seqLastStep = -1;
+    });
+}
+void Session::setSequencerBeats(int beats) {
+    beats = std::max(1, std::min(64, beats));
+    d->post([this, beats] {
+        d->seqBeats = beats; d->a_seqBeats = beats;
+        d->seqPhase = std::fmod(d->seqPhase, (double)(beats * 4));
+        d->seqLastStep = -1;
+    });
+}
+void Session::setSequencerStep(int track, int step, int velocity, int note) {
+    if (track < 0 || track >= kSeqTracks || step < 0 || step >= kSeqMaxSteps) return;
+    velocity = std::max(0, std::min(127, velocity));
+    note = std::max(0, std::min(127, note));
+    d->post([this, track, step, velocity, note] {
+        auto& hit = d->seqGrid[(size_t)track][(size_t)step];
+        hit.velocity = (uint8_t)velocity; hit.note = (uint8_t)note;
+    });
+}
+void Session::loadSequencerSamplePath(const std::string& path, int track) {
+    if (track < 0 || track >= kSeqTracks ||
+        !std::filesystem::is_regular_file(path)) return;
+    d->job([this, path, track] {
+        auto prepared = std::make_unique<Sampler>(d->sr);
+        if (!prepared->load(path)) return;
+        prepared->setMode(Sampler::ONESHOT);
+        auto holder = std::make_shared<std::unique_ptr<Sampler>>(std::move(prepared));
+        d->post([this, track, holder] {
+            auto& dst = d->seqSampler[(size_t)track];
+            std::swap(dst, *holder);
+            d->bury(std::move(*holder));
+        });
+    });
+}
+void Session::clearSequencerSample(int track) {
+    if (track < 0 || track >= kSeqTracks) return;
+    d->post([this, track] {
+        d->bury(std::move(d->seqSampler[(size_t)track]));
+    });
+}
+void Session::setMasterBpm(float value) {
+    if (!std::isfinite(value)) return;
+    value = std::max(30.f, std::min(300.f, value));
+    d->post([this, value] { d->bpm = value; d->a_bpm = value; });
+}
+void Session::setGlobalPitch(float semis, float cents) {
+    if (!std::isfinite(semis) || !std::isfinite(cents)) return;
+    d->post([this, semis, cents] {
+        d->seqPitchSemis = std::max(-24.f, std::min(24.f, semis));
+        d->seqPitchCents = std::max(-100.f, std::min(100.f, cents));
+        for (auto& track : d->tracks)
+            if (track->sampler) track->sampler->setBend(d->seqPitchSemis + d->seqPitchCents / 100.f);
+    });
+}
+void Session::setPitchedTempo(float ratio) {
+    if (!std::isfinite(ratio)) return;
+    ratio = std::max(.25f, std::min(2.f, ratio));
+    d->post([this, ratio] { d->pitchedTempo = ratio; });
+    setLoopSpeed(ratio);
+}
+
 
 // ---- sampler ----
 void Session::loadSamplePath(const std::string& path, bool kit, int track,
@@ -1974,7 +2093,10 @@ int Session::sampleRate() const { return d->sr; }
 Session::Status Session::status() const {
     Status s{};
     s.playing = d->a_playing; s.pos = d->a_pos; s.loopSamples = d->a_loop;
-    s.bpm = d->a_bpm; s.loopBars = d->a_bars; s.master_peak = d->a_master; s.cpu_permille = d->a_cpu;
+    s.bpm = d->a_bpm; s.loopBars = d->a_bars;
+    s.seqStep = d->a_seqStep; s.seqBeats = d->a_seqBeats;
+    s.sequencerEnabled = d->a_seqEnabled;
+    s.master_peak = d->a_master; s.cpu_permille = d->a_cpu;
     const uint32_t cm = d->a_clip_mask, rm = d->a_cliprec_mask;
     for (int i = 0; i < kTracks; i++) {
         s.track_peak[i] = d->tracks[(size_t)i]->peak;
