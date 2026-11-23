@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <type_traits>
@@ -733,8 +734,8 @@ void SamplerApp::stopSong() {
 namespace {
 struct FullProjectSettings {
     uint32_t magic = 0x32505041;  // APP2
-    // v3 changes only the NOTE REPEAT subdivision enum. v2 projects remain loadable.
-    uint32_t version = 3, bytes = sizeof(FullProjectSettings);
+    // v4 adds independent sequencer and tempo fields without changing the v2/v3 prefix.
+    uint32_t version = 4, bytes = sizeof(FullProjectSettings);
     std::array<SamplerApp::TrackState, SamplerApp::kTracks> tracks{};
     SamplerApp::ScaleState scale{};
     float reverbSize = .7f, reverbWet = .35f, delayTime = .4f, delayFeedback = .45f;
@@ -745,6 +746,14 @@ struct FullProjectSettings {
     uint32_t songSize = 0;
     std::array<int32_t, 64> songOrder{};
     std::array<std::array<char, 96>, SamplerApp::kTracks> sampleNames{};
+    // Appended v4 fields. Preserve the complete v2/v3 prefix for old projects.
+    std::array<std::array<uint8_t, SamplerApp::kSeqSteps>, SamplerApp::kSeqTracks> seqVelocity{};
+    std::array<std::array<uint8_t, SamplerApp::kSeqSteps>, SamplerApp::kSeqTracks> seqNote{};
+    std::array<std::array<char, 96>, SamplerApp::kSeqTracks> seqSampleNames{};
+    int32_t seqTrack = 0, seqPage = 0, seqBeats = 4, seqEditedStep = 0;
+    float tempoBpm = 120.f, pitchedTempo = 1.f;
+    int32_t pitchSemis = 0, pitchCents = 0;
+    uint8_t sequencerMode = 0, sequencerEnabled = 1, reservedSeq[2] = {};
 };
 static_assert(std::is_trivially_copyable_v<FullProjectSettings>);
 }
@@ -785,6 +794,21 @@ bool SamplerApp::saveFullProject(int slot) {
     m.cueDivision = cueDivision_;
     m.sceneTrackMask = sceneTracks_; m.performance = sceneKeys_; m.songMode = songMode_;
     m.songSize = (uint32_t)std::min<size_t>(64, songOrder_.size());
+    m.seqTrack = seqTrack_; m.seqPage = seqPage_; m.seqBeats = seqBeats_;
+    m.seqEditedStep = seqEditStep_; m.sequencerMode = sequencerMode_;
+    m.sequencerEnabled = 1;
+    m.tempoBpm = tempoFlexBpm_; m.pitchedTempo = pitchedTempo_;
+    m.pitchSemis = pitchSemis_; m.pitchCents = pitchCents_;
+    for (int t = 0; t < kSeqTracks; ++t) {
+        std::snprintf(m.seqSampleNames[(size_t)t].data(),
+                      m.seqSampleNames[(size_t)t].size(), "%s",
+                      seqSourceNames_[(size_t)t].c_str());
+        for (int i = 0; i < kSeqSteps; ++i) {
+            const auto hit = seqGrid_[(size_t)t][(size_t)i];
+            m.seqVelocity[(size_t)t][(size_t)i] = hit.velocity;
+            m.seqNote[(size_t)t][(size_t)i] = hit.note;
+        }
+    }
     for (uint32_t i = 0; i < m.songSize; ++i) m.songOrder[i] = songOrder_[i];
     std::array<std::string, kTracks> sources{};
     for (int i = 0; i < kTracks; ++i) {
@@ -801,9 +825,18 @@ bool SamplerApp::saveFullProject(int slot) {
             return false;
         }
     }
+    std::array<std::string, kSeqTracks> sequencerSources{};
+    for (int i = 0; i < kSeqTracks; ++i) {
+        const auto& source = seqSourcePaths_[(size_t)i];
+        if (!source.empty() && !std::filesystem::is_regular_file(source)) {
+            say("SEQ SAMPLE MISSING ON TRACK " + std::to_string(i + 1));
+            return false;
+        }
+        sequencerSources[(size_t)i] = source;
+    }
     std::vector<uint8_t> bytes(sizeof(m));
     std::memcpy(bytes.data(), &m, bytes.size());
-    if (!s_.saveProject(slot, std::move(bytes), sources)) {
+    if (!s_.saveProject(slot, std::move(bytes), sources, sequencerSources)) {
         say("PROJECT BUSY OR INVALID"); return false;
     }
     say("SAVING PROJECT " + std::to_string(slot + 1));
@@ -816,13 +849,16 @@ bool SamplerApp::loadFullProject(int slot) {
     return true;
 }
 void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
-    if (project.appState.size() != sizeof(FullProjectSettings)) {
+    const size_t legacySize = offsetof(FullProjectSettings, seqVelocity);
+    const bool oldProject = project.appState.size() == legacySize;
+    if (!oldProject && project.appState.size() != sizeof(FullProjectSettings)) {
         say("PROJECT SETTINGS INCOMPATIBLE"); return;
     }
     FullProjectSettings m{};
-    std::memcpy(&m, project.appState.data(), sizeof(m));
-    if (m.magic != 0x32505041 || (m.version != 2 && m.version != 3) ||
-        m.bytes != sizeof(m) || m.songSize > 64 ||
+    std::memcpy(&m, project.appState.data(), project.appState.size());
+    if (m.magic != 0x32505041 ||
+        (oldProject ? (m.version != 2 && m.version != 3) : (m.version != 4)) ||
+        m.bytes != project.appState.size() || m.songSize > 64 ||
         m.selectedTrack < 0 || m.selectedTrack >= kTracks ||
         m.page < 0 || m.page >= kPages || m.selectedScene < 0 ||
         m.selectedScene >= Session::kScenes || m.selectedSongStep < -1 ||
@@ -845,6 +881,45 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
     // v2 saved 0..5 as straight divisions. v3 interleaves T values,
     // keeping the original rhythmic choice without losing old projects.
     sceneKeys_ = m.performance; songMode_ = m.songMode;
+    if (!oldProject) {
+        seqTrack_ = std::max(0, std::min(kSeqTracks - 1, (int)m.seqTrack));
+        seqBeats_ = std::max(1, std::min(64, (int)m.seqBeats));
+        seqPage_ = std::max(0, std::min((seqBeats_ * 4 - 1) / 16, (int)m.seqPage));
+        seqEditStep_ = std::max(0, std::min(kSeqSteps - 1, (int)m.seqEditedStep));
+        sequencerMode_ = m.sequencerMode != 0;
+        tempoFlexBpm_ = std::isfinite(m.tempoBpm) ? cl(m.tempoBpm, 30.f, 300.f) : 120.f;
+        pitchedTempo_ = std::isfinite(m.pitchedTempo) ? cl(m.pitchedTempo, .25f, 2.f) : 1.f;
+        pitchSemis_ = std::max(-24, std::min(24, (int)m.pitchSemis));
+        pitchCents_ = std::max(-100, std::min(100, (int)m.pitchCents));
+        s_.setSequencerBeats(seqBeats_);
+        s_.setSequencerEnabled(m.sequencerEnabled != 0);
+        for (int t = 0; t < kSeqTracks; ++t) {
+            const auto& source = project.seqSamplePaths[(size_t)t];
+            const auto& title = m.seqSampleNames[(size_t)t];
+            const auto end = std::find(title.begin(), title.end(), '\0');
+            seqSourcePaths_[(size_t)t] = source;
+            seqSourceNames_[(size_t)t] = std::string(title.begin(), end);
+            if (source.empty()) s_.clearSequencerSample(t);
+            else s_.loadSequencerSamplePath(source, t);
+            for (int i = 0; i < kSeqSteps; ++i) {
+                auto& hit = seqGrid_[(size_t)t][(size_t)i];
+                hit.velocity = m.seqVelocity[(size_t)t][(size_t)i];
+                hit.note = m.seqNote[(size_t)t][(size_t)i];
+                s_.setSequencerStep(t, i, hit.velocity, hit.note);
+            }
+        }
+        s_.setMasterBpm(tempoFlexBpm_);
+        s_.setGlobalPitch((float)pitchSemis_, (float)pitchCents_);
+        s_.setPitchedTempo(pitchedTempo_);
+    } else {
+        // v2/v3 archives remain playable with fresh, unmodified sequencer lanes.
+        sequencerMode_ = false;
+        for (int t = 0; t < kSeqTracks; ++t)
+            for (int i = 0; i < kSeqSteps; ++i) {
+                seqGrid_[(size_t)t][(size_t)i] = {0, 60};
+                s_.setSequencerStep(t, i, 0, 60);
+            }
+    }
     songOrder_.clear();
     for (uint32_t i = 0; i < m.songSize; ++i) songOrder_.push_back(m.songOrder[i]);
     scenesLoaded_ = true;
