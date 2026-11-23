@@ -29,6 +29,7 @@ public:
         int seqStep;           // audio-clocked playhead (0..beats*4-1)
         int seqBeats;          // 1/4..64/4, independent of loop length
         bool seqEnabled;
+        bool projectTransformBusy;   // background WSOLA/pitch-render pending
         float master_peak;
         float track_peak[kTracks];
         bool track_has_clip[kTracks], track_clip_rec[kTracks];
@@ -80,7 +81,12 @@ public:
     void setSeqEnabled(bool on);
     void loadSeqSamplePath(const std::string& path, bool kit, int lane, int triggerNote = 60);
     void setSeqPitch(float semitones); // global tuning, clock unaffected
-    void setSeqTempo(float bpm);       // global transport clock, 30..300 BPM
+    void setSeqTempo(float bpm);       // global transport clock, 30..300 BPM (empty sessions)
+    // Applies a new project BPM and/or pitch to existing audio clips, scenes
+    // and COMPOSE using the worker's pitch-preserving WSOLA. A "pitched tempo"
+    // change supplies a pitch target raised by 12*log2(newBpm/oldBpm).
+    bool transformProject(float targetBpm, float targetPitchSemitones);
+    void setLoadedPitchState(float semitones); // archive already contains rendered audio
 
     // ---- sampler (per track) ----
     void loadSamplePath(const std::string& path, bool kit, int track, const std::string& displayName = "");          // worker thread builds it, then it replaces the track's sampler
