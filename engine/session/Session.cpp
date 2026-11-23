@@ -454,7 +454,9 @@ struct Session::Impl {
         for (const auto& t : tracks) if (t->clipRec) return;
         composition.valid = true;
         composition.samples = loopSamples;
-        composition.bars = loopBars; composition.tempo = bpm;
+        // Source tempo must travel with the original PCM; the current
+        // TEMPO FLEX target is stored separately in v4 application metadata.
+        composition.bars = loopBars; composition.tempo = clipReferenceBpm;
         composition.pos = pos; composition.tapePos = tapePos;
         composition.rate = rate;
         composition.playing = playing; composition.stopping = stopping;
@@ -546,7 +548,7 @@ struct Session::Impl {
         s.active = activeScene; s.queued = pendingScene;
         s.songPlaying = songPlaying; s.songStep = songStep; s.pendingAt = pendingAt;
         auto& c = s.current;
-        c.samples = loopSamples; c.bars = loopBars; c.tempo = bpm;
+        c.samples = loopSamples; c.bars = loopBars; c.tempo = clipReferenceBpm;
         c.pos = pos; c.tapePos = tapePos; c.rate = rate;
         c.playing = playing; c.stopping = stopping;
         for (int t = 0; t < kTracks; ++t) {
@@ -1478,7 +1480,7 @@ void Session::captureScene(int slot, uint8_t tracks) {
         if (samples <= 0) return;
         Impl::Scene replacement;
         replacement.samples = samples;
-        replacement.tempo = fromComposition ? d->composition.tempo : d->bpm;
+        replacement.tempo = fromComposition ? d->composition.tempo : d->clipReferenceBpm;
         replacement.bars = fromComposition ? d->composition.bars : d->loopBars;
         for (int i = 0; i < kTracks; ++i) {
             const bool has = fromComposition ? d->composition.has[(size_t)i]
