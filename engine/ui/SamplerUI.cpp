@@ -812,34 +812,22 @@ void SamplerUI::sequencerView() {
 void SamplerUI::tempoPanel() {
     rrect({0, 0, W_, H_}, 0, theme::withAlpha(BG, 218));
     tap({0, 0, W_, H_}, [this] { tempoOpen_ = false; });
-    const Rect panel{W_ * .21f, 26.f, W_ * .58f, H_ - 52.f};
+    const Rect panel{W_ * .12f, 30.f, W_ * .76f, H_ - 60.f};
     rrect(panel, R_CARD, SURFACE);
     stroke(panel, R_CARD, ACCENT, 1);
     tap(panel, [] {});
-    text(panel.x + 19, panel.y + 25, 16, TEXT, "GLOBAL TEMPO / PITCH", 0, true);
-    button({panel.x + panel.w - 80, panel.y + 8, 65, 29}, "CLOSE", false,
+    text(panel.x + 20, panel.y + 28, 17, TEXT, "GLOBAL TEMPO / PITCH", 0, true);
+    button({panel.x + panel.w - 80, panel.y + 9, 65, 29}, "CLOSE", false,
            [this] { tempoOpen_ = false; }, 10);
-    const float row = (panel.h - 66.f) / 4.f;
-    auto control = [this, panel, row](int index, const std::string& title,
-                       const std::string& value,
-                       std::function<void(int)> delta) {
-        const float y = panel.y + 56.f + index * row;
-        line(panel.x + 16, y - 9, panel.x + panel.w - 16, y - 9, OUTLINE, 1);
-        text(panel.x + 20, y + 11, 11, TEXT, title, 0, true);
-        button({panel.x + panel.w - 164, y - 2, 38, 30}, "−", false,
-               [delta] { delta(-1); }, 15);
-        text(panel.x + panel.w - 121, y + 13, 12, ACCENT, value, 0, true);
-        button({panel.x + panel.w - 52, y - 2, 38, 30}, "+", false,
-               [delta] { delta(1); }, 15);
-    };
-    control(0, "TEMPO FLEX", num("%.0f BPM", app_.tempoFlexBpm()),
-            [this](int n) { app_.setTempoFlexBpm(app_.tempoFlexBpm() + n); });
-    control(1, "PITCH • SEMITONES", num("%+d st", app_.pitchSemitones()),
-            [this](int n) { app_.setPitchSemitones(app_.pitchSemitones() + n); });
-    control(2, "PITCH • CENTS", num("%+d ct", app_.pitchCents()),
-            [this](int n) { app_.setPitchCents(app_.pitchCents() + n); });
-    control(3, "PITCHED TEMPO", num("%.2fx", app_.pitchedTempo()),
-            [this](int n) { app_.setPitchedTempo(app_.pitchedTempo() + .05f * n); });
+    line(panel.x + 20, panel.y + 48,
+         panel.x + panel.w - 20, panel.y + 48, OUTLINE, 1);
+    // Reuse the original FM1 rotary knob drawing, pointer, orange arc,
+    // drag handler and typography; no separate design for this screen.
+    const float x = panel.x + 100, dx = (panel.w - 200) / 3.f;
+    const float cy = panel.y + 139.f;
+    for (int i = 0; i < 4; ++i) knob(x + dx * i, cy, SamplerApp::P_TEMPO, i);
+    text(panel.x + panel.w / 2, panel.y + panel.h - 24, 11, DIM,
+         "FLEX BPM  •  PITCH (ST / CENTS)  •  PITCHED TEMPO", 1);
 }
 
 void SamplerUI::trackList(Rect r) {
