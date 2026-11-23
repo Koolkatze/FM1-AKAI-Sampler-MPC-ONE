@@ -724,6 +724,7 @@ void SamplerUI::deck(Rect r) {
         tap(nr, [this, i] { app_.gotoPage(kTabs[i]); });
     }
     for (int i = 0; i < 4; i++) knob(x0 + 49 + i * 100, 220, app_.page(), i);
+    text(M + 8, 278, 10, kOrange, num("%.1f BPM", st_.bpm), 0, true);
     timeline({M, 288, W_ - 2 * M, H_ - 288 - 8});
 }
 
@@ -796,26 +797,32 @@ void SamplerUI::seqTempoView() {
     line(0, 48, W_, 48, OUTLINE, 1);
     text(17, 25, 20, ACCENT, "GLOBAL TEMPO / PITCH", 0, true);
     button({W_ - 97, 9, 82, 30}, "BACK", false, [this] { seqTempoOpen_ = false; }, 11);
-    const float left = 26, row = 63, field = W_ * .46f;
-    const float ys[] = {78, 145, 212};
-    const std::string names[] = {"BPM", "PITCH (SEMITONES)", "FINE TUNE (CENTS)"};
+    const float left = 26, row = 58, field = W_ * .46f;
+    const float ys[] = {67, 131, 195, 259};
+    const std::string names[] = {"TEMPO FLEX (BPM)", "PITCH (SEMITONES)",
+                                  "FINE TUNE (CENTS)", "PITCHED TEMPO (BPM)"};
     const std::string values[] = {num("%.1f", st_.bpm),
-        std::to_string(app_.seqPitchSemitones()), std::to_string(app_.seqPitchCents())};
-    for (int j = 0; j < 3; ++j) {
+        std::to_string(app_.seqPitchSemitones()), std::to_string(app_.seqPitchCents()),
+        num("%.1f", st_.bpm)};
+    for (int j = 0; j < 4; ++j) {
         const float y = ys[j];
         rrect({left, y, W_ - 2 * left, row - 5}, R_CARD, SURFACE);
         text(left + 13, y + 16, 12, DIM, names[j], 0, true);
         text(field, y + 29, 20, ACCENT, values[j], 0, true);
         auto modify = [this, j](int d) {
+            if (st_.projectTransformBusy) return;
             if (j == 0) app_.setProjectTempo(std::clamp(st_.bpm + (float)d, 30.f, 300.f));
             else if (j == 1) app_.setSeqPitch(app_.seqPitchSemitones() + d, app_.seqPitchCents());
-            else app_.setSeqPitch(app_.seqPitchSemitones(), app_.seqPitchCents() + d);
+            else if (j == 2) app_.setSeqPitch(app_.seqPitchSemitones(), app_.seqPitchCents() + d);
+            else app_.setPitchedTempo(std::clamp(st_.bpm + (float)d, 30.f, 300.f));
         };
         button({W_ - 142, y + 11, 48, 34}, "-", false, [modify] { modify(-1); }, 16);
         button({W_ - 85, y + 11, 48, 34}, "+", false, [modify] { modify(1); }, 16);
     }
-    text(left + 7, H_ - 65, 11, DIM,
-         "PITCH CONTROLS DO NOT CHANGE THE SEQUENCER CLOCK.", 0, false);
+    text(left + 7, H_ - 43, 11,
+         st_.projectTransformBusy ? ACCENT : DIM,
+         st_.projectTransformBusy ? "PROCESSING AUDIO... KEEP PLAYING"
+         : "FLEX: TEMPO ONLY  |  PITCH: TONE ONLY  |  PITCHED TEMPO: BOTH", 0, false);
 }
 void SamplerUI::trackList(Rect r) {
     const float rh = (r.h - 7 * 4) / 8;
