@@ -39,6 +39,67 @@ int main() {
     run(2.5);
     CHECK(app.hasSample(0) && app.hasSample(1) && app.hasSample(2) && app.hasSample(3), "four default tracks load (%s, %s, %s, %s)", app.sampleLabel(0).c_str(), app.sampleLabel(1).c_str(), app.sampleLabel(2).c_str(), app.sampleLabel(3).c_str());
     CHECK(!app.hasSample(4), "track 5 is empty");
+    // Independent 8-lane drum/bass step sequencer: keyboard mapping, 64/4
+    // upper bound, tempo and no changes to existing looper assignments.
+    {
+        const std::string looperLabel = app.sampleLabel(0);
+        const auto priorClip = app.status().track_has_clip[0];
+        app.enterSequencer();
+        CHECK(app.sequencerMode() && app.page() == SamplerApp::P_STEP,
+              "SEQUENCER opens independently of the original tape deck");
+        app.setSequencerBeats(64);
+        app.selectSequencerTrack(7);
+        app.setSequencerPage(15);
+        app.sequencerToggleStep(255);
+        CHECK(app.sequencerBeats() == 64 && app.sequencerHit(7, 255).velocity > 0,
+              "64/4 meter supports all 256 sixteenth-note steps");
+        const auto before = app.sequencerHit(7, 240).velocity;
+        uint8_t wDown[3] = {0x90, 53, 100}, wUp[3] = {0x80, 53, 0};
+        app.onMidi(wDown, 3); app.onMidi(wUp, 3);
+        CHECK(app.sequencerHit(7, 240).velocity != before,
+              "white physical FM-1 key toggles the current timeline step");
+        uint8_t bDown[3] = {0x90, 54, 100}, bUp[3] = {0x80, 54, 0};
+        app.onMidi(bDown, 3); app.onMidi(bUp, 3);
+        CHECK(app.sequencerTrack() == 0,
+              "first black physical key selects extra sequencer track 1");
+        enc(0, 1);
+        CHECK(app.sequencerTrack() == 1, "SELECT encoder changes sequencer lane");
+        enc(2, -1);
+        CHECK(app.sequencerPage() == 14, "K1 encoder moves through sequencer timeline");
+        app.setSequencerBeats(4); app.setSequencerPage(0);
+        app.selectSequencerTrack(0);
+        if (!app.library().empty()) app.loadEntry(0);
+        run(0.25);
+        CHECK(app.sampleLabel(0) == looperLabel &&
+              app.status().track_has_clip[0] == priorClip,
+              "SEQ sample import does not replace looper sound or clip");
+        app.sequencerToggleStep(0);
+        app.setTempoFlexBpm(148);
+        run(0.12);
+        CHECK(std::fabs(app.status().bpm - 148.f) < .1f,
+              "TEMPO FLEX updates shared project BPM");
+        app.setPitchSemitones(7); app.setPitchCents(25);
+        CHECK(app.pitchSemitones() == 7 && app.pitchCents() == 25 &&
+              std::fabs(app.tempoFlexBpm() - 148.f) < .1f,
+              "independent semitone/cent controls preserve BPM setting");
+        app.setPitchedTempo(1.25f);
+        run(0.15);
+        CHECK(std::fabs(app.status().bpm - 185.f) < .1f,
+              "PITCHED TEMPO couples effective BPM to tape-rate ratio");
+        app.setPitchedTempo(1.f);
+        app.setTempoFlexBpm(120.f);
+        app.setPitchSemitones(0); app.setPitchCents(0);
+        for (int t = 0; t < SamplerApp::kSeqTracks; ++t)
+            for (int i = 0; i < SamplerApp::kSeqSteps; ++i)
+                if (app.sequencerHit(t, i).velocity) {
+                    app.selectSequencerTrack(t);
+                    app.sequencerToggleStep(i);
+                }
+        app.exitSequencer();
+        run(.25);
+        CHECK(!app.sequencerMode() && app.page() == SamplerApp::P_HOME,
+              "HOME exits SEQUENCER without changing looper tracks");
+    }
     // Empty SONG must not cause a file picker, or publish any audio at all.
     app.requestSongExport();
     CHECK(!app.wantSongExport() && app.toast() == "NO SCENES IN SONG",
