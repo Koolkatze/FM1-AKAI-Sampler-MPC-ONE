@@ -311,7 +311,7 @@ struct Session::Impl {
         std::array<std::pair<int, int>, kBlock> triggers{};
         int triggerCount = 0;
         if (seqEnabled && playing && !stopping) {
-            const double advance = (double)bpm * 4.0 / (60.0 * sr);
+            const double advance = (double)bpm * pitchedTempo * 4.0 / (60.0 * sr);
             for (int i = 0; i < n; ++i) {
                 const int step = (int)seqPhase % total;
                 if (step != seqLastStep && triggerCount < kBlock) {
@@ -878,7 +878,7 @@ struct Session::Impl {
             if (t.arpOn) t.arp.run(n, bpm, sr, evs);
             std::stable_sort(evs.begin(), evs.end(), [](const Arp::Ev& a, const Arp::Ev& b) { return a.offset < b.offset; });
             if (t.sampler) {
-                t.sampler->setBend(bend);
+                t.sampler->setBend(bend + seqPitchSemis + seqPitchCents / 100.f);
                 int cur = 0;
                 for (auto& e : evs) {
                     const int off = std::min(n, std::max(cur, e.offset));
@@ -1125,7 +1125,7 @@ void Session::clearSequencerSample(int track) {
 void Session::setMasterBpm(float value) {
     if (!std::isfinite(value)) return;
     value = std::max(30.f, std::min(300.f, value));
-    d->post([this, value] { d->bpm = value; d->a_bpm = value; });
+    d->post([this, value] { d->bpm = value; d->a_bpm = value * d->pitchedTempo; });
 }
 void Session::setGlobalPitch(float semis, float cents) {
     if (!std::isfinite(semis) || !std::isfinite(cents)) return;
@@ -1139,7 +1139,7 @@ void Session::setGlobalPitch(float semis, float cents) {
 void Session::setPitchedTempo(float ratio) {
     if (!std::isfinite(ratio)) return;
     ratio = std::max(.25f, std::min(2.f, ratio));
-    d->post([this, ratio] { d->pitchedTempo = ratio; });
+    d->post([this, ratio] { d->pitchedTempo = ratio; d->a_bpm = d->bpm * ratio; });
     setLoopSpeed(ratio);
 }
 
