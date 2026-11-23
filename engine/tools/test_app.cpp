@@ -73,6 +73,7 @@ int main() {
         run(0.35);
         CHECK(rmsFrom(beginSeq) > 0.001, "new sequencer plays real audio at the transport BPM");
         s.play(false); run(0.8);
+        app.toggleSeqStep(0, 0); app.toggleSeqStep(1, 0); // restore silent baseline
         SamplerUI seqUi(app);
         seqUi.setSize(860.f, 400.f, 0.f, 0.f);
         theme::apply(false); seqUi.frame(now);
