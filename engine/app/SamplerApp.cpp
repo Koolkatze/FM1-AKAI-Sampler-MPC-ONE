@@ -1507,7 +1507,7 @@ void SamplerApp::leds() {
 void SamplerApp::draw(uint32_t now) {
     static int lastLight = -1; if ((int)theme::light != lastLight) { lastLight = theme::light; setPalette(theme::light); needClear_ = true; }
     static int lastHero = -1;
-    const int heroKind = mic_ == 1 || mic_ == 2 ? 6 : page_ == P_ENV ? 1 : page_ == P_LFO ? 2 : page_ == P_MIX ? 3 : page_ == P_KEY ? 4 : page_ == P_LEN ? 5 : page_ == P_CUE ? 7 : 0;
+    const int heroKind = mic_ == 1 || mic_ == 2 ? 6 : page_ == P_ENV ? 1 : page_ == P_LFO ? 2 : page_ == P_MIX ? 3 : page_ == P_KEY ? 4 : page_ == P_LEN ? 5 : page_ == P_CUE ? 7 : page_ == P_STEP ? 8 : 0;
     if (heroKind != lastHero) { lastHero = heroKind; needClear_ = true; }
     if (needClear_) { fwDirty_ = true; clear(BLACK); std::fill(cells_.begin(), cells_.end(), SurfaceCell()); std::fill(rects_.begin(), rects_.end(), ~0ull); needResend_ = false; }
     else if (needResend_) { needResend_ = false; std::fill(cells_.begin(), cells_.end(), SurfaceCell()); std::fill(rects_.begin(), rects_.end(), ~0ull); }
@@ -1516,8 +1516,10 @@ void SamplerApp::draw(uint32_t now) {
     // header: the track number and the sample name, the transport state as the same pictogram as on the phone
     const bool recNow = st_.freeRecording || st_.track_clip_rec[track_];
     {
-        const std::string lab = s_.trackLabel(track_);
-        drawText(0, 12, 10, 3, ACCENT, BLACK, std::to_string(track_ + 1), 1);
+        const std::string lab = sequencerMode_
+            ? seqSourceNames_[(size_t)seqTrack_] : s_.trackLabel(track_);
+        drawText(0, 12, 10, 3, ACCENT, BLACK,
+                 std::to_string(sequencerMode_ ? seqTrack_ + 1 : track_ + 1), 1);
         drawText(1, 36, 10, 3, lab.empty() ? DIM : PAPER, BLACK, lab.empty() ? "EMPTY" : lab, 8);
         const int stt = recNow ? 2 : st_.playing ? 1 : 0;
         static int lastSt = -1; if (stt != lastSt || needClear_) { lastSt = stt; rects_[26] = ~0ull; for (int i = 0; i < 16; i++) rects_[300 + i] = ~0ull; }
@@ -1530,7 +1532,9 @@ void SamplerApp::draw(uint32_t now) {
         }
     }
     drawText(20, 12, 40, 2, ACCENT, BLACK, kPage[page_], 9);
-    for (int i = 0; i < kTracks; i++) rect(8 + i, 127 + i * 13, 44, 10, 4, i == track_ ? ACCENT : BAR);
+    for (int i = 0; i < kTracks; i++)
+        rect(8 + i, 127 + i * 13, 44, 10, 4,
+             i == (sequencerMode_ ? seqTrack_ : track_) ? ACCENT : BAR);
     hero(now, k);
     // the loop: a thin bar with the position, under it the state (mic / toast / audition, else the sample mode and the loop)
     std::string line;
@@ -1544,11 +1548,17 @@ void SamplerApp::draw(uint32_t now) {
         line = item ? std::string(item->directory ? "[DIR] " : item->entry >= 0 ? "[WAV] " : "[FILE] ") + item->label
                     : "FM1-SAMPLER /";
     }
+    else if (sequencerMode_)
+        line = fmt("SEQ %.0f BPM  ", st_.bpm) + std::to_string(seqBeats_) +
+               "/4  PAGE " + std::to_string(seqPage_ + 1);
     else line = std::string(kAlgo[ts_[track_].algo]) + "  " + loopText();
     const bool browserNotice = browserTouchedAt_ && now - browserTouchedAt_ < 4000;
     const bool hot = cueActive_ || cueSelect_ || !toast().empty() || browserNotice || mic_ || st_.freeRecording || recNow || st_.freeArmed;
-    const bool hasLoopBar = loopAny_ && st_.loopSamples > 0;
-    const int px = (int)(st_.track_has_clip[track_] ? st_.clipPos[track_] * 216 : (hasLoopBar ? st_.pos / st_.loopSamples * 216 : 0));
+    const bool hasLoopBar = (loopAny_ && st_.loopSamples > 0) || sequencerMode_;
+    const int px = sequencerMode_
+        ? (int)(st_.seqStep * 216.f / std::max(4, seqBeats_ * 4))
+        : (int)(st_.track_has_clip[track_] ? st_.clipPos[track_] * 216
+              : (hasLoopBar ? st_.pos / st_.loopSamples * 216 : 0));
     static int lastPx = -1; if (px != lastPx) { lastPx = px; rects_[24] = ~0ull; }   // the bar is redrawn under the growing fill
     rect(24, 12, 102, 216, 3, BAR);
     rects_[25] = ~0ull;
@@ -1575,7 +1585,7 @@ void SamplerApp::draw(uint32_t now) {
         rects_[70 + i] = ~0ull;
         rect(70 + i, cx, cy + 38, bw, 3, ACCENT);
     }
-    const char* hint = mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_CUE ? "OCT+ + OCT- MENU   K1 RATE / TRIPLETS" : page_ == P_LEN ? "TURN K1: X2 OR /2  THE LOOP REPEATS" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_KEY ? "KEYS FOLLOW THE KEY  CHANGE ANY TIME"
+    const char* hint = sequencerMode_ ? "16 WHITE: STEPS  8 BLACK: TRACKS  K1: PAGE" : mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_CUE ? "OCT+ + OCT- MENU   K1 RATE / TRIPLETS" : page_ == P_LEN ? "TURN K1: X2 OR /2  THE LOOP REPEATS" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_KEY ? "KEYS FOLLOW THE KEY  CHANGE ANY TIME"
                      : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
     drawText(90, 12, 228, 1, DIM, BLACK, hint, 38);
     needClear_ = false;
@@ -1603,6 +1613,15 @@ void SamplerApp::hero(uint32_t now, const Knobs& k) {
         } else {
             float live[2048]; const int ln = s_.livePeaks(live, 2048), per = std::max(1, (ln + n - 1) / n);
             for (int i = 0; i < n; i++) { float v = 0; for (int j = i * per; j < std::min(ln, (i + 1) * per); j++) v = std::max(v, live[j]); column(i, x0 + i * 4, 3, (int)(std::min(1.f, v * 1.1f) * H) + 1, i * per < ln ? PAPER : BAR, false); }
+        }
+    } else if (page_ == P_STEP) {
+        for (int i = 0; i < 16; ++i) {
+            const int step = seqPage_ * 16 + i;
+            const bool valid = step < seqBeats_ * 4;
+            const bool filled = valid && seqGrid_[(size_t)seqTrack_][(size_t)step].velocity != 0;
+            const bool cursor = valid && st_.playing && st_.seqStep == step;
+            column(i, x0 + i * 13, 11, filled ? 37 : (cursor ? 26 : 7),
+                   cursor ? ACCENT : filled ? PAPER : BAR, true);
         }
     } else if (page_ == P_CUE) {
         drawText(100, x0, y0 + 8, 3, ACCENT, BLACK, cueRateName(cueDivision_), 9);
