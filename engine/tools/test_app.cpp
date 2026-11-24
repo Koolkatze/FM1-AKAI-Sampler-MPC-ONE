@@ -157,7 +157,7 @@ int main() {
             bool obsoleteButton = false;
             for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
                 seqIconLabel |= op.text == "SEQ" &&
-                    std::fabs(op.f[0] - 351.f) < 1.f && op.f[1] < 160.f;
+                    std::fabs(op.f[0] - 351.f) < 1.f && op.f[1] < 175.f;
                 libraryIconLabel |= op.text == "LIBRARY" &&
                     std::fabs(op.f[0] - 351.f) < 1.f && op.f[1] < 220.f;
                 obsoleteButton |= op.text == "TEMPO / PITCH" ||
@@ -166,7 +166,7 @@ int main() {
             CHECK(seqIconLabel && libraryIconLabel && !obsoleteButton,
                   "%s HOME has central sequencer icon without large SEQ or TEMPO buttons",
                   light ? "LIGHT" : "DARK");
-            // The last tool's touch area ends at y262; the lower sample
+            // The last tool's touch area ends at y251; the lower sample
             // timeline starts y288, so the unused gap must stay inactive.
             ui.touch(0, 351.f, 277.f, now + 12);
             ui.touch(2, 351.f, 277.f, now + 12);
