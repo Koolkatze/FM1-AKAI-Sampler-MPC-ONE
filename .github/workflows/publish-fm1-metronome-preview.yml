@@ -1,4 +1,4 @@
-name: Publish FM1 Sampler 0.42.3 song export status signed preview
+name: Publish FM1 Sampler signed stable APK
 
 on:
   push:
@@ -11,18 +11,17 @@ on:
       - 'engine/**'
       - 'firmware/app/ctrl.c'
       - 'firmware/hosttest/ctrl_host.c'
-      - '.github/workflows/publish-fm1-metronome-preview.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: fm1-metronome-preview-release
+  group: fm1-stable-release
   cancel-in-progress: true
 
 jobs:
-  publish-metronome-preview:
+  publish-stable:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
@@ -130,45 +129,42 @@ jobs:
             echo "::error::APK package or version changed; refusing to publish an incompatible upgrade"
             exit 1
           fi
-      - name: Stage and check APK
-        run: |
-          mkdir -p dist
-          cp android/app/build/outputs/apk/debug/app-debug.apk dist/FM1-Sampler-PadEdit-0.42.3-signed-preview.apk
-          unzip -t dist/FM1-Sampler-PadEdit-0.42.3-signed-preview.apk | tail -n 1
-          sha256sum dist/FM1-Sampler-PadEdit-0.42.3-signed-preview.apk
-      - name: Upload pinned-certificate APK as test-only artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: FM1-Sampler-0.42.3-PadEdit-Signed-Preview
-          path: dist/FM1-Sampler-PadEdit-0.42.3-signed-preview.apk
-          if-no-files-found: error
-
-      - name: Publish signed 0.42.3 preview as a GitHub pre-release
-        id: publish_release
-        # The repo may forbid Releases writes by GITHUB_TOKEN even when
-        # contents:write is requested. A verified Actions APK remains usable.
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.FM1_RELEASE_TOKEN || github.token }}
-          TAG: v0.42.3-pad-edit-preview.1
+      - name: Stage verified signed APK
+        id: stage
         run: |
           set -euo pipefail
-          apk=dist/FM1-Sampler-PadEdit-0.42.3-signed-preview.apk
-          test -s "$apk"
-          test -s docs/RELEASE_NOTES_0423.md
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$apk" --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file docs/RELEASE_NOTES_0423.md --title "FM1 Sampler 0.42.3 — Song Export Status (Android Preview)" --prerelease
-          else
-            gh release create "$TAG" "$apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "FM1 Sampler 0.42.3 — Song Export Status (Android Preview)" --notes-file docs/RELEASE_NOTES_0423.md --prerelease
-          fi
-          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,assets,isPrerelease --jq '{url: .url, isPrerelease: .isPrerelease, files: [.assets[].name]}'
-      - name: Signed APK artifact is the fallback when Releases is forbidden
-        if: steps.publish_release.outcome == 'failure'
+          info=$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging android/app/build/outputs/apk/debug/app-debug.apk | head -n 1)
+          version=$(printf '%s\n' "$info" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          mkdir -p dist
+          apk="dist/FM1-Sampler-$version-signed.apk"
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$apk"
+          unzip -t "$apk" | tail -n 1
+          sha256sum "$apk"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "apk=$apk" >> "$GITHUB_OUTPUT"
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FM1-Sampler-${{ steps.stage.outputs.version }}-Signed
+          path: ${{ steps.stage.outputs.apk }}
+          if-no-files-found: error
+
+      - name: Publish normal GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.FM1_RELEASE_TOKEN || github.token }}
+          VERSION: ${{ steps.stage.outputs.version }}
+          APK: ${{ steps.stage.outputs.apk }}
         run: |
-          echo "::warning::GitHub Releases rejected this workflow's token. Signed APK build, compatibility checks, and artifact upload succeeded."
-          echo "::warning::Download FM1-Sampler-0.42.3-PadEdit-Signed-Preview from the Artifacts section of this workflow run."
-          echo "## Signed APK built successfully — GitHub Releases permission blocked" >> "$GITHUB_STEP_SUMMARY"
-          echo "GitHub Releases returned an authorization failure. This does **not** invalidate the signed APK." >> "$GITHUB_STEP_SUMMARY"
-          echo "Download the **FM1-Sampler-0.42.3-PadEdit-Signed-Preview** artifact (ZIP containing APK) in this run." >> "$GITHUB_STEP_SUMMARY"
-          echo "To publish a permanent release, configure a repository Actions token with Releases/Contents write permission (or a scoped FM1_RELEASE_TOKEN secret), then rerun." >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          tag="v$VERSION"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::notice::Release $tag already exists; stable binaries are never overwritten. Increment versionName and versionCode for new builds."
+            exit 0
+          fi
+          if [[ "$VERSION" == "0.42.3" ]]; then
+            echo "::notice::0.42.3 is promoted byte-for-byte by the main-branch promotion workflow."
+            exit 0
+          fi
+          gh release create "$tag" "$APK" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "FM1 Sampler $VERSION" --generate-notes --latest
+          test "$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isPrerelease,isDraft --jq '.isPrerelease or .isDraft')" = false
