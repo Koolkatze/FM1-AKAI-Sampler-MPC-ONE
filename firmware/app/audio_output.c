@@ -7,7 +7,6 @@ static unsigned output_gain;
 static int32_t usb_pcm[FM1_BLOCK_WORDS] __attribute__((aligned(32)));
 static int16_t bluetooth_pcm[FM1_BLOCK_WORDS] __attribute__((aligned(32)));
 
-void fm1_output_reset(void) { output_gain = 0; metro_position = 0U; metro_started = 0U; metro_fired = 0U; metro_envelope = 0; }
 static inline __attribute__((always_inline)) int32_t limit(int64_t value)
 {
     /* Bias signed 24-bit PCM into [0, 2^24). Unsigned arithmetic also
@@ -129,6 +128,7 @@ static void metro_jack_mix(int32_t *output, unsigned gain)
         if (was != (unsigned)(metro_position >> 32)) metro_fired = 0U;
     }
 }
+void fm1_output_reset(void) { output_gain = 0; metro_position = 0U; metro_started = 0U; metro_fired = 0U; metro_envelope = 0; }
 FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
 {
     if (!output) return;
