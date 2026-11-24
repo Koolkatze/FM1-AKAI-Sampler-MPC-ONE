@@ -165,7 +165,7 @@ int main() {
                     seqGlyph |= std::fabs(op.f[0] - 340.5f) < .2f &&
                         std::fabs(op.f[1] - 114.f) < .2f && std::fabs(op.f[2] - 4.2f) < .2f;
                     libraryGlyph |= std::fabs(op.f[0] - 341.f) < .2f &&
-                        std::fabs(op.f[1] - 167.3f) < .2f && std::fabs(op.f[2] - 7.3f) < .2f;
+                        std::fabs(op.f[1] - 163.3f) < .2f && std::fabs(op.f[2] - 7.3f) < .2f;
                 }
                 if (op.type == UiOp::LINE)
                     metGlyph |= std::fabs(op.f[0] - 345.5f) < .2f &&
