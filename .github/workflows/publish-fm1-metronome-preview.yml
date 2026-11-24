@@ -143,9 +143,13 @@ jobs:
           path: dist/FM1-Sampler-LoopSong-Fullscreen-0.41-signed-preview.apk
           if-no-files-found: error
 
-      - name: Publish signed 0.40 preview as a GitHub pre-release
+      - name: Publish signed 0.41 preview as a GitHub pre-release
+        id: publish_release
+        # The repo may forbid Releases writes by GITHUB_TOKEN even when
+        # contents:write is requested. A verified Actions APK remains usable.
+        continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.FM1_RELEASE_TOKEN || github.token }}
           TAG: v0.41-loopsong-preview.1
         run: |
           set -euo pipefail
@@ -159,3 +163,12 @@ jobs:
             gh release create "$TAG" "$apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "FM1 Sampler 0.41.0 — Full-screen LOOP and SONG (Android Preview)" --notes-file docs/RELEASE_NOTES_041.md --prerelease
           fi
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,assets,isPrerelease --jq '{url: .url, isPrerelease: .isPrerelease, files: [.assets[].name]}'
+      - name: Signed APK artifact is the fallback when Releases is forbidden
+        if: steps.publish_release.outcome == 'failure'
+        run: |
+          echo "::warning::GitHub Releases rejected this workflow's token. Signed APK build, compatibility checks, and artifact upload succeeded."
+          echo "::warning::Download FM1-Sampler-0.41-LoopSong-Signed-Preview from the Artifacts section of this workflow run."
+          echo "## Signed APK built successfully — GitHub Releases permission blocked" >> "$GITHUB_STEP_SUMMARY"
+          echo "GitHub Releases returned an authorization failure. This does **not** invalidate the signed APK." >> "$GITHUB_STEP_SUMMARY"
+          echo "Download the **FM1-Sampler-0.41-LoopSong-Signed-Preview** artifact (ZIP containing APK) in this run." >> "$GITHUB_STEP_SUMMARY"
+          echo "To publish a permanent release, configure a repository Actions token with Releases/Contents write permission (or a scoped FM1_RELEASE_TOKEN secret), then rerun." >> "$GITHUB_STEP_SUMMARY"
