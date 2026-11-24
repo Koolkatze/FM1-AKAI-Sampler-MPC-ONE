@@ -127,6 +127,7 @@ FN(jint, startInput)(JNIEnv*, jclass, jlong h, jint dev) { return E(h)->startInp
 FN(void, stopAudio)(JNIEnv*, jclass, jlong h) { E(h)->stop(); }
 // 1 once when the system closed the output stream under us (the device list changed)
 FN(jboolean, audioDead)(JNIEnv*, jclass, jlong h) { return E(h)->streamDead.exchange(false); }
+FN(jboolean, metronomeMonitor)(JNIEnv*, jclass, jlong h) { return E(h)->session.status().metroMode >= 3; }
 FN(jint, xruns)(JNIEnv*, jclass, jlong h) { auto& e = *E(h); return e.stream ? e.stream->getXRunCount().value() : -1; }
 
 FN(void, midiDisconnected)(JNIEnv*, jclass, jlong h) {
