@@ -992,7 +992,7 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
     metroBeats_ = v6Project ? std::clamp((int)m.metronomeBeats, 1, 64) : 4;
     metroSwing_ = v6Project && std::isfinite(m.metronomeSwing) ? cl(m.metronomeSwing) : 0.f;
     metroVolume_ = v6Project && std::isfinite(m.metronomeVolume) ? cl(m.metronomeVolume) : .7f;
-    metroMode_ = v6Project ? std::clamp((int)m.metronomeMode, 0, 5) : 0;
+    metroMode_ = v6Project ? std::clamp((int)m.metronomeMode, 0, 5) : 2;
     applyMetronome();
     scale_ = m.scale;
     reverbSize_ = m.reverbSize; reverbDw_ = m.reverbWet;
@@ -1455,6 +1455,22 @@ void SamplerApp::tick(uint32_t now) {
     if (fwDirty_) { fwDirty_ = false; sysex(6, {7, (uint8_t)scale_.root, (uint8_t)(scale_.octave + 3), (uint8_t)scale_.mode}, true); }
     if (repaintAt_ && now >= repaintAt_) { repaintAt_ = repaintAt_ + 2500 < now + 2500 && repaintCount_++ < 1 ? now + 2500 : 0; needClear_ = true; }
     st_ = s_.status();
+    // Clock/transport phase are captured from the audio thread, never
+    // calculated from the UI ticker's wall clock. Send a superseding sync
+    // packet at most ten times per second (SysEx control task is not an ISR).
+    if (!lastMetroAt_ || now - lastMetroAt_ >= 100) {
+        lastMetroAt_ = now;
+        const int bpm10 = std::clamp((int)std::lround(st_.bpm * 10.f), 10, 16383);
+        const int beat = std::clamp((int)std::floor(st_.metroPhase), 0, 63);
+        const int frac = std::clamp((int)std::lround((st_.metroPhase - beat) * 16383.f), 0, 16383);
+        sysex(7, {(uint8_t)(bpm10 >> 7), (uint8_t)(bpm10 & 127),
+                   (uint8_t)std::clamp(st_.metroBeats, 1, 64),
+                   (uint8_t)std::clamp((int)std::lround(st_.metroSwing * 100), 0, 100),
+                   (uint8_t)std::clamp((int)std::lround(st_.metroVolume * 100), 0, 100),
+                   (uint8_t)std::clamp(st_.metroMode, 0, 5),
+                   (uint8_t)beat, (uint8_t)(frac >> 7), (uint8_t)(frac & 127),
+                   (uint8_t)(st_.metroRecording ? 1 : 0)}, true, 1100);
+    }
     Session::LoadedProject loadedProject;
     const bool loadedThisTick = s_.takeLoadedProject(loadedProject);
     if (loadedThisTick) {
