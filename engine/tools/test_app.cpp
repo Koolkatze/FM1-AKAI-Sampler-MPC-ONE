@@ -728,8 +728,23 @@ int main() {
         CHECK(!app.status().songPlaying && !app.status().playing,
               "Song ends after the final scene instead of looping forever");
         run(0.4);
-        CHECK(std::filesystem::exists("/tmp/fm1sampler_t2/fm1_scenes.dat"),
-              "saved scenes and Song Mode order are persisted for the next launch");
+        CHECK(!std::filesystem::exists("/tmp/fm1sampler_t2/fm1_scenes.dat"),
+              "unsaved LOOP pads and SONG are NOT written to a global startup file");
+        // Simulate an old installation with a once-autosaved SCN3 sidecar:
+        // it must be left intact for recovery but ignored at app startup.
+        {
+            const std::string oldFile = "/tmp/fm1sampler_t2/fm1_scenes.dat";
+            std::ofstream legacy(oldFile, std::ios::binary | std::ios::trunc);
+            const uint32_t magic = 0x334E4353, rate = (uint32_t)sr, zero = 0;
+            legacy.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
+            legacy.write(reinterpret_cast<const char*>(&rate), sizeof(rate));
+            for (int scene = 0; scene < Session::kScenes; ++scene) {
+                uint8_t empty[2] = {0, 0};
+                legacy.write(reinterpret_cast<const char*>(empty), sizeof(empty));
+            }
+            legacy.write(reinterpret_cast<const char*>(&zero), sizeof(zero));
+            CHECK(legacy.good(), "valid legacy SCN3 fixture stored for no-autorestore test");
+        }
         {
             Session restored(sr);
             restored.setDataDir("/tmp/fm1sampler_t2");
@@ -1060,7 +1075,16 @@ int main() {
         bool hasSongExport = false;
         for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT)
             hasSongExport |= op.text == "EXPORT SONG";
-        CHECK(hasSongExport, "PROJECT shows EXPORT SONG beside CLOSE");
+        CHECK(!hasSongExport, "PROJECT menu no longer crams SONG controls into its layout");
+        ui.touch(0, 740.f, 76.f, now + 10);
+        ui.touch(2, 740.f, 76.f, now + 10);
+        app.setSongMode(true);
+        ui.frame(now + 11);
+        hasSongExport = false;
+        for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT)
+            hasSongExport |= op.text == "EXPORT SONG";
+        CHECK(hasSongExport, "separate full-screen SONG page includes EXPORT SONG");
+        app.exitPerformanceMode();
         ui.touch(0, 80.f, 64.f, now + 9);
         ui.touch(2, 80.f, 64.f, now + 9);
         ui.frame(now + 10);
