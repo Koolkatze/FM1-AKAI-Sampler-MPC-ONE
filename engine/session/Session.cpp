@@ -260,7 +260,7 @@ struct Session::Impl {
     double metroPosition = 0.; // beat position within current N/4 measure
     int metroClickAge = 999999;
     std::atomic<int> a_metroBeats{4}, a_metroMode{2};
-    std::atomic<float> a_metroSwing{0.f}, a_metroVolume{.7f}, a_metroPhase{0.f};
+    std::atomic<float> a_metroSwing{0.f}, a_metroVolume{.7f}, a_metroPhase{0.f}, a_metroBpm{120.f};
     std::atomic<bool> a_metroRecording{false};
     double pos = 0; int32_t loopSamples = 0;
     std::atomic<float> tapeSpeed{1.f}; double tapePos = 0;   // ONE tape pointer for every loop clip, so they never drift apart
@@ -591,6 +591,8 @@ struct Session::Impl {
         activateSequencer(sc.seqScene ? (int)sc.seqScene - 1 : -1);
         activeScene = slot; pendingScene = -1; a_activeScene = slot; a_queuedScene = -1;
         pos = tapePos = 0.0;
+        metroPosition = std::fmod(seqPhase / 4.0, (double)metroBeats);
+        metroClickAge = sr;
         playing = true; stopping = false; rate = 1.0;
         scrubActive = scrubTail = false;
         cueActive = false; cueMix = 0.f;
@@ -641,6 +643,8 @@ struct Session::Impl {
         seqPhase = std::fmod(std::max(0., pos) * bpm * 4.0 / (60.0 * sr),
                              (double)(seqBeats * 4));
         seqLastStep = -1;
+        metroPosition = std::fmod(seqPhase / 4.0, (double)metroBeats);
+        metroClickAge = sr;
         playing = c.playing; stopping = c.stopping;
         for (int t = 0; t < kTracks; ++t) {
             auto& tr = *tracks[(size_t)t];
@@ -1228,16 +1232,23 @@ struct Session::Impl {
         const bool metroActive = metroMode == 0 || metroMode == 3 ||
             ((metroMode == 1 || metroMode == 4) && metroRec);
         const bool metroPhone = metroActive && metroMode < 3 && !offlineRender;
-        const double beatStep = std::max(1.0, (double)bpm * pitchedTempo) / (60.0 * sr);
+        const double tapeClock = playing && loopSamples > 0 && !scrubbing
+            ? std::max(0.0, (double)tapeSpeed.load()) : 1.0;
+        const double rampClock = playing && loopSamples > 0 && ramp && !scrubbing
+            ? std::max(0.0, rateSum / n) : 1.0;
+        a_metroBpm.store((float)(bpm * pitchedTempo * tapeClock * rampClock));
+        const double beatStep = std::max(1.0, (double)bpm * pitchedTempo) * tapeClock / (60.0 * sr);
         const int clickLength = std::max(1, sr / 30);
         float mp = 0.f;
         for (int i = 0; i < n; ++i) {
             const double beat = metroPosition;
-            metroPosition += beatStep;
+            const double beatAdvance = beatStep *
+                (playing && loopSamples > 0 && ramp && !scrubbing ? rateArr[(size_t)i] : 1.0);
+            metroPosition += beatAdvance;
             if (metroPosition >= metroBeats) metroPosition = std::fmod(metroPosition, (double)metroBeats);
             const int beatIndex = (int)std::floor(beat);
             const double onset = beatIndex + ((beatIndex & 1) ? .5 * metroSwing : 0.0);
-            const bool crossed = beat <= onset && beat + beatStep > onset;
+            const bool crossed = beat <= onset && beat + beatAdvance > onset;
             if (crossed) metroClickAge = 0;
             float click = 0.f;
             if (metroClickAge < clickLength) {
@@ -1344,7 +1355,11 @@ void Session::play(bool on) {
             if (d->playing) d->stopping = true;   // the tape slows down to standstill (block() ends it: playing = false, notes released)
         } else {
             d->stopping = false;
-            if (!d->playing) { d->playing = true; d->rate = d->loopSamples > 0 ? 0.0 : 1.0; }   // the tape runs up from standstill
+            if (!d->playing) {
+                d->metroPosition = std::fmod(d->seqPhase / 4.0, (double)d->metroBeats);
+                d->metroClickAge = d->sr;
+                d->playing = true; d->rate = d->loopSamples > 0 ? 0.0 : 1.0;
+            }   // the tape runs up from standstill
         }
     });
 }
@@ -1605,6 +1620,8 @@ void Session::seek(float f) {
         d->seqPhase = std::fmod(p * d->clipReferenceBpm * 4.0 / (60.0 * d->sr),
                                  (double)(d->seqBeats * 4));
         d->seqLastStep = -1;
+        d->metroPosition = std::fmod(d->seqPhase / 4.0, (double)d->metroBeats);
+        d->metroClickAge = d->sr;
     });
 }
 void Session::setCue(bool on, int division) {
@@ -2633,7 +2650,8 @@ Session::Status Session::status() const {
     s.sequencerEnabled = d->a_seqEnabled;
     s.metroBeats = d->a_metroBeats; s.metroSwing = d->a_metroSwing;
     s.metroVolume = d->a_metroVolume; s.metroMode = d->a_metroMode;
-    s.metroPhase = d->a_metroPhase; s.metroRecording = d->a_metroRecording;
+    s.metroPhase = d->a_metroPhase; s.metroBpm = d->a_metroBpm;
+    s.metroRecording = d->a_metroRecording;
     s.flexProcessing = d->a_flexPending;
     s.master_peak = d->a_master; s.cpu_permille = d->a_cpu;
     const uint32_t cm = d->a_clip_mask, rm = d->a_cliprec_mask;
