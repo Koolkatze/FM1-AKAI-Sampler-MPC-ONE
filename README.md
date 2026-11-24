@@ -2,7 +2,9 @@
 
 Sampler, editor de audio y **looper de 16 pistas** para Android. El teléfono ejecuta el motor de audio, la biblioteca y la interfaz; el **M-VAVE FM-1** puede actuar como superficie de control MIDI por **USB**, con botones, teclado y encoders. El motor y la interfaz se encuentran en `engine/`; Android integra ese motor mediante JNI.
 
-> **Versión 0.42.1 (preview):** LIBRARY vuelve a estar disponible durante la edición del secuenciador de un pad. [Notas 0.42.1](docs/RELEASE_NOTES_0421.md).
+> **Versión 0.42.2 (preview):** Correct Tempo añade DECIMALS en K4 a la derecha de TAP TEMPO, con precisión de 0,01 BPM. [Notas 0.42.2](docs/RELEASE_NOTES_0422.md).
+
+> **Versión 0.42.1 (preview anterior):** LIBRARY vuelve a estar disponible durante la edición del secuenciador de un pad. [Notas 0.42.1](docs/RELEASE_NOTES_0421.md).
 
 > **Versión 0.42.0 (preview anterior):** edición de pads en directo, MET sincronizado con PLAY/STOP y Correct Tempo; [notas 0.42](docs/RELEASE_NOTES_042.md). Los cambios están sujetos a la compilación y pruebas de GitHub Actions.
 
@@ -10,7 +12,7 @@ Sampler, editor de audio y **looper de 16 pistas** para Android. El teléfono ej
 
 ## Descargas y compilación
 
-- **Versiones firmadas:** [GitHub Releases](https://github.com/Koolkatze/fm1-sampler/releases) y [GitHub Actions](https://github.com/Koolkatze/fm1-sampler/actions). La versión anterior [0.41.0](https://github.com/Koolkatze/fm1-sampler/releases/tag/v0.41-loopsong-preview.1) está publicada; la [0.42.0](https://github.com/Koolkatze/fm1-sampler/releases/tag/v0.42-pad-edit-preview.1) ya está publicada y la 0.42.1 requiere las comprobaciones de GitHub Actions. Antes de actualizar guarda todos los pads y arreglos con SAVE PROJECT y haz SAVE BACKUP. [Guía de actualización sin perder datos](docs/UPDATES_WITHOUT_DATA_LOSS.md).
+- **Versiones firmadas:** [GitHub Releases](https://github.com/Koolkatze/fm1-sampler/releases) y [GitHub Actions](https://github.com/Koolkatze/fm1-sampler/actions). La versión anterior [0.41.0](https://github.com/Koolkatze/fm1-sampler/releases/tag/v0.41-loopsong-preview.1) está publicada; la [0.42.0](https://github.com/Koolkatze/fm1-sampler/releases/tag/v0.42-pad-edit-preview.1) ya está publicada y la [0.42.1](https://github.com/Koolkatze/fm1-sampler/releases/tag/v0.42.1-pad-edit-preview.1) ya está publicada y la 0.42.2 requiere las comprobaciones de GitHub Actions. Antes de actualizar guarda todos los pads y arreglos con SAVE PROJECT y haz SAVE BACKUP. [Guía de actualización sin perder datos](docs/UPDATES_WITHOUT_DATA_LOSS.md).
 - **Código Android:** `android/`; **motor de audio/UI:** `engine/`; **protocolo de hardware:** `PROTOCOL.md`.
 - **Utilidad ADB para backups TAR y proyectos `.fm1p`:** [`tools/FM1_ADB_Recuperacion_0389.py`](tools/FM1_ADB_Recuperacion_0389.py) y [guía de uso](docs/ADB_RECUPERACION_0389.md).
 - **Documentación:** [16 pistas + MET v0.40](docs/FM1_16TRACK_METRONOME_040.md), [resumen técnico y pendientes](docs/STATUS_040.md), [secuenciador + Tempo Flex v0.39](docs/FM1_SEQUENCER_039.md), [biblioteca, proyectos y backups](docs/SAMPLE_LIBRARY.md), [escenas y SONG](docs/SCENES_AND_SONG.md), [migración](docs/MIGRACION_SEGURA.md).
@@ -22,7 +24,7 @@ Las compilaciones debug de GitHub usan **`com.ferluht.fm1sampler.scenes`**; la v
 1. En **PROJECT → LOOP / SONG MODE**, selecciona un pad guardado. **COMPOSE** abre el deck y mantiene ese pad sonando; si otro pad estaba activo, inicia el seleccionado. SELECT y el selector de pista saltan a pistas libres de todo el proyecto. Las pistas usadas en COMPOSE u otros pads quedan bloqueadas aunque no suenen. Graba con REC y termina la toma con REC/STOP: el clip se añade automáticamente al pad. BACK TO PADS vuelve a la pantalla LOOP sin restaurar la composición.
 2. **SEQUENCER** abre el patrón del pad en reproducción. La primera edición usa una copia privada de la escena vinculada (o un patrón vacío si estaba OFF). Los pasos, notas y compás se guardan directamente en esa copia; no se modifican los otros pads ni las ocho escenas compartidas. Desde 0.42.1, toca LIBRARY, elige una pista del secuenciador y selecciona un sample para cambiarlo sin detener el pad; también funciona PRESETS en el FM-1. Los instrumentos del secuenciador siguen siendo compartidos entre los patrones del proyecto: cambiar un sample cambia esa pista en todos los patrones, sin alterar sus pasos ni el audio ya grabado. SAVE PROJECT conserva la asignación. BACK TO PADS conserva el pad activo.
 3. **HOME** (físico o táctil) sale del editor, restaura las pistas de COMPOSE y su secuenciador. Las nuevas pistas se incorporan también a COMPOSE cuando comparten longitud y tempo de origen; si no, permanecen en su pad para evitar alterar audio. Al editar un pad desde SONG se congela el arreglo y se repite el pad seleccionado.
-4. **MET:** PLAY/REC sigue el transporte; STOP silencia el clic. REC/REC MON son de grabación; OFF permanece mudo. CORRECT TEMPO calibra la referencia musical sin cambiar el audio ni el pitch: K1 corrige BPM y TAP TEMPO estima el tempo de las pulsaciones. El cambio de tempo y los patrones de pad se guardan con el proyecto.
+4. **MET:** PLAY/REC sigue el transporte; STOP silencia el clic. REC/REC MON son de grabación; OFF permanece mudo. CORRECT TEMPO calibra la referencia musical sin cambiar el audio ni el pitch: K1 corrige BPM (pasos de 0,1), TAP TEMPO estima el tempo de las pulsaciones y K4 DECIMALS, a su derecha, afina en pasos de 0,01 BPM. En pantalla arrastra K4 para fijar la parte decimal de .00 a .99; el encoder físico K4 permite subir o bajar centésimas incluso al cruzar un BPM entero. El valor completo se muestra con dos decimales en K1. El reloj interno conserva esa precisión; el monitor físico FM-1 sigue usando el protocolo MIDI de 0,1 BPM. El cambio de tempo y los patrones de pad se guardan con el proyecto.
 5. El auto guardado actualiza el pad en memoria; **SAVE PROJECT** conserva el trabajo en el archivo `.fm1p`, y **SAVE BACKUP** crea una copia externa. No se crea un proyecto global al salir. Los efectos globales y fuentes comunes siguen siendo parámetros del proyecto, no una copia independiente por pad. Durante la edición se bloquean los cambios de longitud, borrado global y los controles globales de tempo/cinta.
 
 ## Novedades 0.41: PROJECT, LOOP y SONG a pantalla completa
@@ -46,7 +48,7 @@ Las compilaciones debug de GitHub usan **`com.ferluht.fm1sampler.scenes`**; la v
 |---|---|---|---|---|
 | **TEMPO / PITCH** | Tempo Flex, BPM | Pitch Bend, semitonos | Pitch Bend, cents | Pitched Tempo |
 | **METER / CLICK** | Compás 1/4–64/4 | Swing, 0–100 % | Volumen del clic, 0–100 % | Modo de clic |
-| **CORRECT TEMPO** | BPM 30–300, 0,1 BPM | TAP TEMPO (botón grande) | TAP TEMPO | — |
+| **CORRECT TEMPO** | BPM 30–300, 0,1 BPM | TAP TEMPO (botón grande) | TAP TEMPO | DECIMALS, 0,01 BPM |
 
 Los modos son **PLAY/REC** (clic durante PLAY y REC), **REC** (solo grabación), **OFF**, **PLAY/REC MON**, **REC MON** y **OFF MON**. Los modos *MON* requieren firmware específico en el FM-1: la mezcla principal se reproduce en el móvil y el clic de monitor va **solo al minijack del FM-1**. La salida y sincronía exactas **no están aún comprobadas en hardware real**. La APK por sí sola no modifica el firmware del FM-1.
 

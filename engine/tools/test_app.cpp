@@ -239,12 +239,27 @@ int main() {
             ui.touch(2, 826.f, 163.f, now + 19);
             ui.frame(now + 20);
             CHECK(app.page() == SamplerApp::P_METRO_CORRECT &&
-                  app.knobs()[0].valid && !app.knobs()[1].valid && !app.knobs()[2].valid,
-                  "%s third MET page has only the correction knob and tap target",
+                  app.knobs()[0].valid && !app.knobs()[1].valid && !app.knobs()[2].valid && app.knobs()[3].valid,
+                  "%s third MET page has correction, wide tap target and decimal knob",
                   light ? "LIGHT" : "DARK");
-            bool tapVisible = false;
-            for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) tapVisible |= op.text == "TAP TEMPO";
-            CHECK(tapVisible, "%s TAP TEMPO is visible", light ? "LIGHT" : "DARK");
+            bool tapVisible = false, fineVisible = false;
+            for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
+                tapVisible |= op.text == "TAP TEMPO";
+                fineVisible |= op.text == "DECIMALS";
+            }
+            CHECK(tapVisible && fineVisible, "%s TAP TEMPO and DECIMALS are visible", light ? "LIGHT" : "DARK");
+            const float priorBpm = app.correctedTempoBpm();
+            app.setCorrectTempoBpm(120.25f);
+            ui.frame(now + 21);
+            ui.touch(0, 786.5f, 220.f, now + 22);
+            ui.touch(1, 786.5f, 165.f, now + 23);
+            ui.touch(2, 786.5f, 165.f, now + 24);
+            CHECK(std::fabs(app.correctedTempoBpm() - 120.75f) < .011f,
+                  "%s right-hand decimal knob changes fractional BPM by touch", light ? "LIGHT" : "DARK");
+            enc(5, 1);
+            CHECK(std::fabs(app.correctedTempoBpm() - 120.76f) < .011f,
+                  "physical K4 increases tempo by exactly one hundredth");
+            app.setCorrectTempoBpm(priorBpm);
             app.selectTrack(0);
         }
         theme::apply(true);
@@ -971,6 +986,7 @@ int main() {
         app.setPitchCents(17);
         app.setPitchedTempo(1.10f);
         app.setTempoFlexBpm(134.f);
+        app.setCorrectTempoBpm(147.83f);
         app.exitSequencer();
         run(.20);
         CHECK(app.saveFullProject(0), "Save Full Project starts asynchronous FMP2 snapshot");
@@ -985,6 +1001,7 @@ int main() {
         app.setSequencerBeats(4);
         app.setPitchSemitones(0); app.setPitchCents(0);
         app.setPitchedTempo(1.f); app.setTempoFlexBpm(120.f);
+        app.setCorrectTempoBpm(120.f);
         app.exitSequencer();
         app.setAlgo(5); app.selectScene(0); app.deleteScene(); run(0.25);
         app.loopClear(); run(0.25);
@@ -1004,6 +1021,8 @@ int main() {
               std::fabs(app.pitchedTempo() - 1.10f) < .001f &&
               std::fabs(app.tempoFlexBpm() - 134.f) < .1f,
               "v5 project restores sequencer meter, steps, bass notes, source and tempo/pitch");
+        CHECK(std::fabs(app.correctedTempoBpm() - 147.83f) < .001f,
+              "full-project save/load preserves hundredth-BPM correction");
         CHECK(app.status().sceneSequencers[2] == 2,
               "full project restores LOOP part D1 -> complete sequencer scene 2");
         app.selectSequencerScene(1);
@@ -1498,12 +1517,21 @@ int main() {
     {   // Grid correction must never request Tempo Flex processing or change raw BPM.
         const float original = app.tempoFlexBpm() * app.pitchedTempo();
         const auto raw = app.status();
-        app.setCorrectTempoBpm(100.f);
+        app.setCorrectTempoBpm(100.37f);
         run(.1);
-        CHECK(std::fabs(app.correctedTempoBpm() - 100.f) < .01f &&
+        CHECK(std::fabs(app.correctedTempoBpm() - 100.37f) < .001f &&
               std::fabs(app.status().bpm - raw.bpm) < .01f &&
               app.status().loopSamples == raw.loopSamples,
               "manual correction changes only grid calibration");
+        auto fine = app.knobs(SamplerApp::P_METRO_CORRECT)[3];
+        fine.step(1); run(.1);
+        CHECK(std::fabs(app.correctedTempoBpm() - 100.38f) < .001f &&
+              std::fabs(app.status().bpm - raw.bpm) < .01f && app.status().loopSamples == raw.loopSamples,
+              "cent-BPM adjustment leaves raw tempo and clip length unchanged");
+        app.setCorrectTempoBpm(120.99f); fine.step(1);
+        CHECK(std::fabs(app.correctedTempoBpm() - 121.f) < .001f, "K4 carries across integer BPM");
+        fine.step(-1);
+        CHECK(std::fabs(app.correctedTempoBpm() - 120.99f) < .001f, "K4 borrows across integer BPM");
         app.tapTempo(10000); app.tapTempo(10500); app.tapTempo(11000);
         CHECK(std::fabs(app.correctedTempoBpm() - 120.f) < .01f,
               "500ms taps produce 120 BPM");

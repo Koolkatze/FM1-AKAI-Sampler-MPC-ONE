@@ -426,11 +426,12 @@ void SamplerUI::sampleView(Rect r) {
 }
 
 // A knob of the app (drag up / down to turn): a ring, an orange arc for the value, a pointer, the value under it and its name.
-void SamplerUI::knob(float cx, float cy, SamplerApp::Page page, int idx, bool) {
+void SamplerUI::knob(float cx, float cy, SamplerApp::Page page, int idx, bool compact) {
     auto k = app_.knobs(page);
     const auto& p = k[(size_t)idx];
     if (!p.valid) return;
-    const float R = 25, n = clamp01(p.norm);
+    const float scale = compact ? .60f : 1.f;
+    const float R = 25 * scale, n = clamp01(p.norm);
     auto pt = [&](float rad, float u, float& x, float& y) { const float a = (-135.f + u * 270.f) * kPi / 180; x = cx + std::sin(a) * rad; y = cy - std::cos(a) * rad; };
     auto arc = [&](float u1, uint32_t c, float w) {
         const int N = std::max(1, (int)std::ceil(u1 * 28)); float x0, y0; pt(R, 0, x0, y0); circle(x0, y0, w / 2, c);
@@ -440,9 +441,9 @@ void SamplerUI::knob(float cx, float cy, SamplerApp::Page page, int idx, bool) {
     if (n > 0.004f) arc(n, kOrange, 4.f);
     float x, y; pt(R - 8, n, x, y);
     line(cx, cy, x, y, kPaper, 3.3f); circle(x, y, 1.65f, kPaper); circle(cx, cy, 1.65f, kPaper);
-    text(cx, cy + 39, 13.5f, kPaper, p.value, 1, true);
-    text(cx, cy + 58, 9, kDim, fit(p.name, 100, 9), 1, true);
-    Rect hr{cx - 46, cy - R - 8, 92, 2 * R + 80};
+    text(cx, cy + 39 * scale, compact ? 10.f : 13.5f, kPaper, p.value, 1, true);
+    text(cx, cy + 58 * scale, compact ? 8.f : 9.f, kDim, fit(p.name, 100 * scale, compact ? 8.f : 9.f), 1, true);
+    Rect hr{cx - 46 * scale, cy - R - 8 * scale, 92 * scale, 2 * R + 80 * scale};
     hit(hr, [this, n](float, float y) { dragY_ = y; dragV_ = n; },
         [this, page, idx](float, float y) { app_.knobs(page)[(size_t)idx].set(clamp01(dragV_ + (dragY_ - y) / 110.f)); });
 }
@@ -791,6 +792,7 @@ void SamplerUI::deck(Rect r) {
         knob(x0 + cell * .5f, 220, app_.page(), 0);
         button({x0 + cell + 4, 189, cell * 2.f - 8, 85}, "TAP TEMPO", false,
                [this] { app_.tapTempo(now_); }, 18, true);
+        knob(x0 + cell * 3.5f, 220, app_.page(), 3);
     } else {
         for (int i = 0; i < 4; i++) knob(x0 + 49 + i * 100, 220, app_.page(), i);
     }
@@ -1056,10 +1058,11 @@ void SamplerUI::pagePanel(Rect r) {
         }
     }
     if (app_.metronomeSelected() && app_.page() == SamplerApp::P_METRO_CORRECT) {
-        const float cy = r.y + 80;
-        knob(r.x + r.w * .20f, cy, app_.page(), 0);
-        button({r.x + r.w * .40f, cy - 30, r.w * .57f, 75}, "TAP TEMPO", false,
-               [this] { app_.tapTempo(now_); }, 15, true);
+        const float cy = r.y + 80, cell = r.w / 4.f;
+        knob(r.x + cell * .5f, cy, app_.page(), 0, true);
+        button({r.x + cell + 3, cy - 30, cell * 2.f - 6, 75}, "TAP TEMPO", false,
+               [this] { app_.tapTempo(now_); }, 12, true);
+        knob(r.x + cell * 3.5f, cy, app_.page(), 3, true);
         return;
     }
     auto k = app_.knobs();

@@ -653,10 +653,25 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
     case P_METRO_TEMPO: return knobs(P_TEMPO);
     case P_METRO_CORRECT: {
         Knob& a = k[0];
-        a.name = "CORRECT BPM"; a.value = fmt("%.1f BPM", correctedTempoBpm());
+        a.name = "CORRECT BPM"; a.value = fmt("%.2f BPM", correctedTempoBpm());
         a.norm = cl((correctedTempoBpm() - 30.f) / 270.f); a.valid = true;
-        a.step = [this](int d) { setCorrectTempoBpm(correctedTempoBpm() + (d > 0 ? .1f : -.1f)); };
+        a.step = [this](int d) { setCorrectTempoBpm((std::round(correctedTempoBpm() * 100.f) + (d > 0 ? 10.f : -10.f)) / 100.f); };
         a.set = [this](float v) { setCorrectTempoBpm(std::round((30.f + cl(v) * 270.f) * 10.f) / 10.f); };
+        // K4 changes hundredths independently. Using integer hundredths avoids
+        // repeated float additions and keeps the displayed and edited value aligned.
+        const int cents = std::clamp((int)std::lround(correctedTempoBpm() * 100.f), 3000, 30000);
+        Knob& fine = k[3];
+        fine.name = "DECIMALS"; fine.value = std::string(".") + (cents % 100 < 10 ? "0" : "") + std::to_string(cents % 100);
+        fine.valid = true; fine.norm = (cents % 100) / 99.f;
+        fine.step = [this](int d) {
+            const int c = (int)std::lround(correctedTempoBpm() * 100.f);
+            setCorrectTempoBpm(std::clamp(c + (d > 0 ? 1 : -1), 3000, 30000) / 100.f);
+        };
+        fine.set = [this](float v) {
+            const int c = std::clamp((int)std::lround(correctedTempoBpm() * 100.f), 3000, 30000);
+            const int fraction = (int)std::lround(cl(v) * 99.f);
+            setCorrectTempoBpm(std::min(30000, (c / 100) * 100 + fraction) / 100.f);
+        };
         break;
     }
     case P_METRO_SETTINGS: {
@@ -1885,7 +1900,7 @@ void SamplerApp::draw(uint32_t now) {
         rects_[70 + i] = ~0ull;
         rect(70 + i, cx, cy + 38, bw, 3, ACCENT);
     }
-    const char* hint = metroSelected_ ? (page_ == P_METRO_CORRECT ? "K1: CORRECT BPM   TAP ON PHONE" : "SELECT: METRONOME PAGE  K1..K4: EDIT") : sequencerMode_ ? "16 WHITE: STEPS  8 BLACK: TRACKS  K1: PAGE" : mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_CUE ? "OCT+ + OCT- MENU   K1 RATE / TRIPLETS" : page_ == P_LEN ? "TURN K1: X2 OR /2  THE LOOP REPEATS" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_KEY ? "KEYS FOLLOW THE KEY  CHANGE ANY TIME"
+    const char* hint = metroSelected_ ? (page_ == P_METRO_CORRECT ? "K1: BPM  K4: DECIMALS  TAP: PHONE" : "SELECT: METRONOME PAGE  K1..K4: EDIT") : sequencerMode_ ? "16 WHITE: STEPS  8 BLACK: TRACKS  K1: PAGE" : mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_CUE ? "OCT+ + OCT- MENU   K1 RATE / TRIPLETS" : page_ == P_LEN ? "TURN K1: X2 OR /2  THE LOOP REPEATS" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_KEY ? "KEYS FOLLOW THE KEY  CHANGE ANY TIME"
                      : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
     drawText(90, 12, 228, 1, DIM, BLACK, hint, 38);
     needClear_ = false;
