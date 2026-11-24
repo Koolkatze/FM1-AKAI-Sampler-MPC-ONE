@@ -1,4 +1,4 @@
-name: Build FM1 Sampler 0.40 signed 16-track metronome test APK
+name: Build FM1 Sampler 0.41 full-screen LOOP/SONG signed APK
 
 on:
   push:
@@ -126,19 +126,19 @@ jobs:
           info=$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk" | head -n 1)
           echo "$info"
           if [[ "$info" != *"name='com.ferluht.fm1sampler.scenes'"* ]] || \
-             [[ "$info" != *"versionCode='64'"* ]]; then
+             [[ "$info" != *"versionCode='65'"* ]]; then
             echo "::error::APK package or version changed; refusing to publish an incompatible upgrade"
             exit 1
           fi
       - name: Stage and check APK
         run: |
           mkdir -p dist
-          cp android/app/build/outputs/apk/debug/app-debug.apk dist/FM1-Sampler-16Track-Metronome-0.40-signed-test.apk
-          unzip -t dist/FM1-Sampler-16Track-Metronome-0.40-signed-test.apk | tail -n 1
-          sha256sum dist/FM1-Sampler-16Track-Metronome-0.40-signed-test.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/FM1-Sampler-LoopSong-Fullscreen-0.41-signed-preview.apk
+          unzip -t dist/FM1-Sampler-LoopSong-Fullscreen-0.41-signed-preview.apk | tail -n 1
+          sha256sum dist/FM1-Sampler-LoopSong-Fullscreen-0.41-signed-preview.apk
       - name: Upload pinned-certificate APK as test-only artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FM1-Sampler-0.40-16Track-Signed-Test
-          path: dist/FM1-Sampler-16Track-Metronome-0.40-signed-test.apk
+          name: FM1-Sampler-0.41-LoopSong-Signed-Preview
+          path: dist/FM1-Sampler-LoopSong-Fullscreen-0.41-signed-preview.apk
           if-no-files-found: error
