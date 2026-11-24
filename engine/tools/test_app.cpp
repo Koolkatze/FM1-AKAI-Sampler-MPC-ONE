@@ -841,6 +841,11 @@ int main() {
                 songScene |= op.text == "SONG MODE";
                 songOrder |= op.text == "SONG ORDER";
             }
+            if (!(tracks == 16 && seqButtons == 8 && pads >= 2 &&
+                  loopScene && songScene && !songOrder))
+                printf("LAYOUT TRACE %s: tracks=%d seq=%d pads=%d loop=%d songTab=%d songOrder=%d\n",
+                    light ? "LIGHT" : "DARK", tracks, seqButtons, pads,
+                    loopScene, songScene, songOrder);
             CHECK(tracks == 16 && seqButtons == 8 && pads >= 2 &&
                   loopScene && songScene && !songOrder,
                   "%s LOOP fills whole view with 12 pads, 16 tracks, 8 direct SEQ scenes",
