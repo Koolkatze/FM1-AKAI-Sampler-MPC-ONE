@@ -1238,6 +1238,52 @@ int main() {
         CHECK(app.wantLoopExport() && !app.wantLoopExport(),
               "EXPORT ALL LOOPS still requests Android's public download export");
     }
+    {   // 16 independent looper tracks + separate, non-recordable click track.
+        CHECK(Session::kTracks == 16 && SamplerApp::kTracks == 16,
+              "looper exposes sixteen complete audio tracks");
+        app.selectTrack(15);
+        CHECK(app.track() == 15 && !app.metronomeSelected(),
+              "sixteenth audio track remains a real looper/sample track");
+        app.selectMetronome();
+        CHECK(app.metronomeSelected() && app.page() == SamplerApp::P_METRO_TEMPO,
+              "metronome is a separately selectable seventeenth control track");
+        auto controls = app.knobs(SamplerApp::P_METRO_TEMPO);
+        CHECK(controls[0].valid && controls[1].valid && controls[2].valid && controls[3].valid,
+              "metronome tempo page exposes four independent pitch/tempo knobs");
+        app.gotoPage(SamplerApp::P_METRO_SETTINGS);
+        controls = app.knobs();
+        controls[0].set(6.f / 63.f);  // 7/4
+        controls[1].set(.25f);       // swing 25%
+        controls[2].set(.8f);        // volume 80%
+        controls[3].set(3.f / 5.f);  // PLAY/REC MON
+        run(.1);
+        const auto status = app.status();
+        CHECK(status.metroBeats == 7 && std::fabs(status.metroSwing - .25f) < .01f &&
+              std::fabs(status.metroVolume - .8f) < .01f && status.metroMode == 3,
+              "metronome 7/4 swing, gain and monitored routing reach audio engine");
+        app.selectTrack(0);
+        controls = app.knobs(SamplerApp::P_METRO_SETTINGS);
+        controls[3].set(2.f / 5.f); // restore click OFF for existing live workspace
+        run(.1);
+    }
+    {   // Click never leaks into monitored phone mix or user loop buffers.
+        Session metro(SAMPLERATE);
+        std::array<float, 512> pcm{};
+        metro.setMetronome(7, .25f, .8f, 0); // always-on main mix
+        metro.process(pcm.data(), nullptr, 256);
+        float audible = 0.f;
+        for (float x : pcm) audible = std::max(audible, std::fabs(x));
+        metro.setMetronome(7, .25f, .8f, 3); // monitor-only FM1 headphones
+        metro.process(pcm.data(), nullptr, 256);
+        float privateMix = 0.f;
+        for (float x : pcm) privateMix = std::max(privateMix, std::fabs(x));
+        CHECK(audible > .001f && privateMix < .000001f &&
+              metro.status().metroMode == 3,
+              "sample-clocked click audibly plays in normal mode and is absent from phone mix in MON");
+        CHECK(metro.status().metroBeats == 7 &&
+              metro.status().metroPhase > 0.f,
+              "independent metronome phase advances with the 7/4 audio clock");
+    }
     printf("%s (%d failures)\n", fails ? "FAILED" : "ALL OK", fails);
     return fails ? 1 : 0;
 }
