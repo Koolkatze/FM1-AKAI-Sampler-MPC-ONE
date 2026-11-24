@@ -716,28 +716,29 @@ void SamplerUI::deck(Rect r) {
     }
     // Five equal-size touch areas in the original central icon column.
     // SEQUENCER takes the middle slot, not the sample/knob panel.
-    // Shift the central icons upward: the final touch target ends at y=262,
-    // leaving 26 px clear above the bottom tape/sample timeline (starts y=288).
-    // All icons stay inside the middle x-column; the sample panel starts x=440.
+    // Five compact icon rows preserve the top filename viewer (text at y=27)
+    // and the bottom timeline (starts y=288): the first icon begins at y=44
+    // and the last touch target ends at y=251. No icon enters x>=440, where
+    // the sample display and four knobs start.
     const uint32_t micCol = mic == 1 || mic == 2 ? kOrange : kPaper;
-    icon(4, mx, 22, kPaper);
-    tap({mx - 32, 0, 64, 48}, [this] { setLight(!theme::light); });
-    icon(5, mx, 76, micCol);
-    tap({mx - 32, 50, 64, 50}, [this] { app_.micSample(); });
-    icon(11, mx, 130, kOrange);
-    text(mx, 150, 8.5f, kDim, "SEQ", 1, true);
-    tap({mx - 32, 104, 64, 50}, [this] {
+    icon(4, mx, 54, kPaper);
+    tap({mx - 32, 32, 64, 43}, [this] { setLight(!theme::light); });
+    icon(5, mx, 98, micCol);
+    tap({mx - 32, 76, 64, 43}, [this] { app_.micSample(); });
+    icon(11, mx, 142, kOrange);
+    text(mx, 162, 8.5f, kDim, "SEQ", 1, true);
+    tap({mx - 32, 120, 64, 43}, [this] {
         app_.enterSequencer();
         sheetOpen_ = false;
         tempoOpen_ = false;
     });
     // HOME folder icon restores the library with IMPORT ZIP. The physical
     // PRESETS encoder continues to navigate the same folder selection.
-    icon(6, mx, 184, kPaper);
-    text(mx, 205, 8.5f, kDim, "LIBRARY", 1, true);
-    tap({mx - 32, 158, 64, 50}, [this] { openLibrary(); });
-    icon(7, mx, 238, projectOpen_ ? kOrange : kPaper);
-    tap({mx - 32, 212, 64, 50}, [this] { projectOpen_ = true; });
+    icon(6, mx, 186, kPaper);
+    text(mx, 206, 8.5f, kDim, "LIBRARY", 1, true);
+    tap({mx - 32, 164, 64, 43}, [this] { openLibrary(); });
+    icon(7, mx, 230, projectOpen_ ? kOrange : kPaper);
+    tap({mx - 32, 208, 64, 43}, [this] { projectOpen_ = true; });
     // the sample of this track, its page and the four knobs of the page
     if (app_.metronomeSelected()) {
         rrect({x0, 14, w0, 118}, R_CARD, SURFACE);
