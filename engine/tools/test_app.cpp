@@ -824,6 +824,11 @@ int main() {
             ui.touch(0, 740.f, 76.f, now + 3);
             ui.touch(2, 740.f, 76.f, now + 3);
             ui.frame(now + 4);
+            // The preceding song-playback test may still be in SONG mode.
+            // Pick LOOP explicitly using its actual full-screen tab.
+            ui.touch(0, 297.f, 28.f, now + 4);
+            ui.touch(2, 297.f, 28.f, now + 4);
+            ui.frame(now + 4);
             int tracks = 0, seqButtons = 0, pads = 0;
             bool loopScene = false, songScene = false, songOrder = false;
             for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
@@ -889,6 +894,8 @@ int main() {
         }
         CHECK(narrowEntry && !narrowScene, "narrow PROJECT menu is not overlaid by SONG");
         ui.touch(0, 552.f, 76.f, now + 12); ui.touch(2, 552.f, 76.f, now + 12);
+        ui.frame(now + 13);
+        ui.touch(0, 300.f, 28.f, now + 13); ui.touch(2, 300.f, 28.f, now + 13);
         ui.frame(now + 13);
         bool narrowLoop = false, narrowPads = false;
         for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
@@ -1125,6 +1132,12 @@ int main() {
             slot1 |= op.text == "PROJECT 1";
             slot2 |= op.text == "PROJECT 2";
             page1 |= op.text == "PAGE 1 / 2";
+        }
+        if (!(slotPicker && slot1 && slot2 && page1)) {
+            printf("PROJECT SAVE PICKER DEBUG: mode=%d, labels:", app.performanceActive());
+            for (const auto& op : ui.ops())
+                if (op.type == UiOp::TEXT) printf(" [%s]", op.text.c_str());
+            printf("\n");
         }
         CHECK(slotPicker && slot1 && slot2 && page1,
               "full-project save picker shows independent slots 1-8 on page 1");
