@@ -259,6 +259,7 @@ struct Session::Impl {
     float metroSwing = 0.f, metroVolume = .7f;
     double metroPosition = 0.; // beat position within current N/4 measure
     int metroClickAge = 999999;
+    bool metroClickAccent = false;
     std::atomic<int> a_metroBeats{4}, a_metroMode{2};
     std::atomic<float> a_metroSwing{0.f}, a_metroVolume{.7f}, a_metroPhase{0.f}, a_metroBpm{120.f};
     std::atomic<bool> a_metroRecording{false};
@@ -1247,13 +1248,20 @@ struct Session::Impl {
             metroPosition += beatAdvance;
             if (metroPosition >= metroBeats) metroPosition = std::fmod(metroPosition, (double)metroBeats);
             const int beatIndex = (int)std::floor(beat);
-            const double onset = beatIndex + ((beatIndex & 1) ? .5 * metroSwing : 0.0);
-            const bool crossed = beat <= onset && beat + beatAdvance > onset;
-            if (crossed) metroClickAge = 0;
+            const double after = beat + beatAdvance;
+            const int nextBeat = after >= metroBeats ? 0 : (int)std::floor(after);
+            const double offbeat = beatIndex + .5 * metroSwing;
+            const bool swung = (beatIndex & 1) && beat <= offbeat && after > offbeat;
+            const bool boundary = nextBeat != beatIndex &&
+                ((nextBeat & 1) == 0 || metroSwing <= 0.f);
+            if (swung || boundary || (beat == 0.0 && metroClickAge >= clickLength)) {
+                metroClickAge = 0;
+                metroClickAccent = boundary ? nextBeat == 0 : (beatIndex == 0);
+            }
             float click = 0.f;
             if (metroClickAge < clickLength) {
                 const float age = (float)metroClickAge / sr;
-                const float freq = beatIndex == 0 ? 1600.f : 1050.f;
+                const float freq = metroClickAccent ? 1600.f : 1050.f;
                 click = std::sin(6.28318530718f * freq * age) *
                     std::exp(-age * 150.f) * metroVolume * .28f;
                 ++metroClickAge;
