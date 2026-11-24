@@ -1465,7 +1465,7 @@ void SamplerApp::tick(uint32_t now) {
     // packet at most ten times per second (SysEx control task is not an ISR).
     if (!lastMetroAt_ || now - lastMetroAt_ >= 100) {
         lastMetroAt_ = now;
-        const int bpm10 = std::clamp((int)std::lround(st_.bpm * 10.f), 10, 16383);
+        const int bpm10 = std::clamp((int)std::lround(st_.metroBpm * 10.f), 10, 16383);
         const int beat = std::clamp((int)std::floor(st_.metroPhase), 0, 63);
         const int frac = std::clamp((int)std::lround((st_.metroPhase - beat) * 16383.f), 0, 16383);
         sysex(7, {(uint8_t)(bpm10 >> 7), (uint8_t)(bpm10 & 127),
