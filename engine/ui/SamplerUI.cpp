@@ -622,6 +622,15 @@ void SamplerUI::icon(int kind, float cx, float cy, uint32_t c) {
         line(cx - 10.5f, cy + 13.f, cx + 10.5f, cy + 13.f, c, 1.5f);
         break;
     }
+    case 12: { // MET: mechanical metronome silhouette and pendulum
+        line(cx - 5.5f, cy - 10.f, cx - 11.f, cy + 10.f, c, 2.f);
+        line(cx + 5.5f, cy - 10.f, cx + 11.f, cy + 10.f, c, 2.f);
+        line(cx - 5.5f, cy - 10.f, cx + 5.5f, cy - 10.f, c, 2.f);
+        line(cx - 11.f, cy + 10.f, cx + 11.f, cy + 10.f, c, 2.f);
+        line(cx, cy + 6.f, cx + 7.f, cy - 12.f, c, 2.f);
+        circle(cx + 4.8f, cy - 6.3f, 2.8f, c);
+        break;
+    }
 
     }
 }
@@ -632,8 +641,11 @@ void SamplerUI::deck(Rect r) {
     const bool recOn = st_.freeRecording || st_.track_clip_rec[t], armed = st_.freeArmed, hasLoop = app_.loopExists() && st_.loopSamples > 0;
     const int mic = app_.micState();
     // One grid: margin M, three zones (tape and transport on the left, tools in the middle, sample and knobs on the right, timeline below).
-    // Every icon sits on a 64 px pitch; the bottom icon of the tools column stands on the transport row.
+    // Six central tools use one evenly spaced vertical grid ending at the transport row.
     const float M = 24, zr = W_ - M, x0 = 440, w0 = zr - x0, mx = 351;
+    const float knobY = 220.f, controlBottom = knobY + 60.f, timelineY = 288.f;
+    const float ty = controlBottom - 12.f; // glyph bottoms align with knob name row
+    const float toolTop = 28.f, toolPitch = (ty - toolTop) / 5.f;
     // Inline browser: NO Android file picker or modal directory window.
     // PRESETS selects within this folder and a selected WAV loads right away;
     // ENTER enters folders only, BACK returns one level.
@@ -706,43 +718,40 @@ void SamplerUI::deck(Rect r) {
     // sample knobs or over the bottom waveform/timeline.
     text(M, 222, 11, kOrange, num("%.0f BPM", app_.correctedTempoBpm()), 0, true);
     // transport: play, stop, record / overdub, clear the loop of this track; the active one is orange and underlined
-    const float ty = 248;
     for (int i = 0; i < 4; i++) {
         const float cx = M + 20 + i * 64;
         const bool on = i == 0 ? st_.playing : i == 2 ? recOn : false;
         icon(i, cx, ty, i == 2 ? kOrange : on ? kOrange : kPaper);
-        if (on) rrect({cx - 12, ty + 17, 24, 2.7f}, 0, kOrange);
-        if (i == 2 && armed && (now_ / 400) % 2 == 0) rrect({cx - 12, ty + 17, 24, 2.7f}, 0, kOrange);
-        tap({cx - 32, ty - 28, 64, 58}, [this, i] {
+        if (on) rrect({cx - 12, ty + 14, 24, 2.7f}, 0, kOrange);
+        if (i == 2 && armed && (now_ / 400) % 2 == 0) rrect({cx - 12, ty + 14, 24, 2.7f}, 0, kOrange);
+        tap({cx - 32, ty - 30, 64, timelineY - 3 - (ty - 30)}, [this, i] {
             if (i == 0) app_.transportSet(true);
             else if (i == 1) app_.transportSet(false);
             else if (i == 2) app_.loopRecord();
             else app_.loopClearTrack();
         });
     }
-    // Five icons evenly spaced across the central column. The final PROJECT
-    // icon shares the exact y=248 baseline of PLAY / STOP / REC / CLEAR.
-    // Touch regions remain separate and finish at y=274, above the y=288
-    // timeline. The column ends before x=440 (sample/knob controls).
+    // Uniform 48-unit pitch; the last glyph shares the transport row.
+    // Separate touch zones end before the timeline, including the last tool.
     const uint32_t micCol = mic == 1 || mic == 2 ? kOrange : kPaper;
-    icon(4, mx, 32, kPaper);
-    tap({mx - 32, 6, 64, 52}, [this] { setLight(!theme::light); });
-    icon(5, mx, 86, micCol);
-    tap({mx - 32, 60, 64, 52}, [this] { app_.micSample(); });
-    icon(11, mx, 140, kPaper); // ink steps with orange active beats
-    text(mx, 160, 8.5f, kDim, "SEQ", 1, true);
-    tap({mx - 32, 114, 64, 52}, [this] {
-        app_.enterSequencer();
-        sheetOpen_ = false;
-        tempoOpen_ = false;
+    auto tool = [&](int index, int glyph, uint32_t color, const char* label, std::function<void()> action) {
+        const float cy = toolTop + index * toolPitch;
+        icon(glyph, mx, cy, color);
+        if (*label) text(mx, cy + 18.f, 8.5f, color == kOrange ? kOrange : kDim, label, 1, true);
+        const float top = cy - toolPitch * .5f + 1.f;
+        const float bottom = std::min(cy + toolPitch * .5f - 1.f, timelineY - 3.f);
+        tap({mx - 32, top, 64, bottom - top}, std::move(action));
+    };
+    tool(0, 4, kPaper, "", [this] { setLight(!theme::light); });
+    tool(1, 5, micCol, "", [this] { app_.micSample(); });
+    tool(2, 11, kPaper, "SEQ", [this] {
+        app_.enterSequencer(); sheetOpen_ = false; tempoOpen_ = false;
     });
-    // HOME folder icon restores the library with IMPORT ZIP. The physical
-    // PRESETS encoder continues to navigate the same folder selection.
-    icon(6, mx, 194, kPaper);
-    text(mx, 214, 8.5f, kDim, "LIBRARY", 1, true);
-    tap({mx - 32, 168, 64, 52}, [this] { openLibrary(); });
-    icon(7, mx, ty, projectOpen_ ? kOrange : kPaper);
-    tap({mx - 32, ty - 26, 64, 52}, [this] {
+    tool(3, 6, kPaper, "LIBRARY", [this] { openLibrary(); });
+    tool(4, 12, app_.metronomeSelected() ? kOrange : kPaper, "MET", [this] {
+        app_.selectMetronome(); // respects existing pad-compose protection
+    });
+    tool(5, 7, projectOpen_ ? kOrange : kPaper, "", [this] {
         projectOpen_ = true; performanceOpen_ = false;
     });
     // the sample of this track, its page and the four knobs of the page
@@ -789,14 +798,14 @@ void SamplerUI::deck(Rect r) {
     }
     if (app_.metronomeSelected() && app_.page() == SamplerApp::P_METRO_CORRECT) {
         const float cell = w0 / 4.f;
-        knob(x0 + cell * .5f, 220, app_.page(), 0);
+        knob(x0 + cell * .5f, knobY, app_.page(), 0);
         button({x0 + cell + 4, 189, cell * 2.f - 8, 85}, "TAP TEMPO", false,
                [this] { app_.tapTempo(now_); }, 18, true);
-        knob(x0 + cell * 3.5f, 220, app_.page(), 3);
+        knob(x0 + cell * 3.5f, knobY, app_.page(), 3);
     } else {
-        for (int i = 0; i < 4; i++) knob(x0 + 49 + i * 100, 220, app_.page(), i);
+        for (int i = 0; i < 4; i++) knob(x0 + 49 + i * 100, knobY, app_.page(), i);
     }
-    timeline({M, 288, W_ - 2 * M, H_ - 288 - 8});
+    timeline({M, timelineY, W_ - 2 * M, H_ - timelineY - 8});
 }
 
 

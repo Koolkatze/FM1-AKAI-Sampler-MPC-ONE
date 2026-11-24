@@ -153,17 +153,18 @@ int main() {
         for (bool light : {true, false}) {
             theme::apply(light);
             ui.frame(now + (light ? 10 : 11));
-            bool seqIconLabel = false, libraryIconLabel = false;
+            bool seqIconLabel = false, libraryIconLabel = false, metIconLabel = false;
             bool obsoleteButton = false;
             for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
                 seqIconLabel |= op.text == "SEQ" &&
                     std::fabs(op.f[0] - 351.f) < 1.f && op.f[1] < 175.f;
                 libraryIconLabel |= op.text == "LIBRARY" &&
                     std::fabs(op.f[0] - 351.f) < 1.f && op.f[1] < 220.f;
+                metIconLabel |= op.text == "MET" && std::fabs(op.f[0] - 351.f) < 1.f && std::fabs(op.f[1] - 241.f) < 2.f;
                 obsoleteButton |= op.text == "TEMPO / PITCH" ||
                     op.text == "SEQUENCER";
             }
-            CHECK(seqIconLabel && libraryIconLabel && !obsoleteButton,
+            CHECK(seqIconLabel && libraryIconLabel && metIconLabel && !obsoleteButton,
                   "%s HOME has central sequencer icon without large SEQ or TEMPO buttons",
                   light ? "LIGHT" : "DARK");
             // Test the BPM against both sizes of the tape illustration (INFO
@@ -172,7 +173,7 @@ int main() {
                 ui.setShortcutHelpVisible(help);
                 ui.frame(now + (help ? 19 : 20));
                 int bpmAtTape = 0, bpmElsewhere = 0;
-                bool projectAtTransportLevel = false;
+                bool projectAtTransportLevel = false, stopAligned = false, knobLabelAligned = false;
                 for (const auto& op : ui.ops()) {
                     if (op.type == UiOp::TEXT &&
                         op.text.find(" BPM") != std::string::npos) {
@@ -180,25 +181,27 @@ int main() {
                             std::fabs(op.f[1] - 226.f) < 2.f) ++bpmAtTape;
                         else ++bpmElsewhere;
                     }
-                    // The top bar of the PROJECT icon is centered on y248,
-                    // the same y-value as PLAY/STOP/REC/CLEAR shapes.
+                    // PROJECT and STOP use the same 268 center. Their glyph bottoms
+                    // sit within two units of the knob names' baseline.
                     if (op.type == UiOp::RRECT &&
                         std::fabs(op.f[0] - 341.f) < .2f &&
-                        std::fabs(op.f[1] - 238.7f) < .2f &&
+                        std::fabs(op.f[1] - 258.7f) < .2f &&
                         std::fabs(op.f[2] - 20.f) < .2f &&
                         std::fabs(op.f[3] - 3.4f) < .2f)
                         projectAtTransportLevel = true;
+                    if (op.type == UiOp::RRECT && std::fabs(op.f[0] - 98.7f) < .2f &&
+                        std::fabs(op.f[1] - 258.7f) < .2f && std::fabs(op.f[3] - 18.6f) < .2f) stopAligned = true;
+                    if (op.type == UiOp::TEXT && op.f[0] >= 440.f && std::fabs(op.f[1] - 281.24f) < .5f) knobLabelAligned = true;
                 }
-                CHECK(bpmAtTape == 1 && bpmElsewhere == 0 && projectAtTransportLevel,
+                CHECK(bpmAtTape == 1 && bpmElsewhere == 0 && projectAtTransportLevel && stopAligned && knobLabelAligned,
                       "%s HOME (%s INFO) shows BPM on tape's left and aligns PROJECT with PLAY",
                       light ? "LIGHT" : "DARK", help ? "WITH" : "WITHOUT");
             }
             ui.setShortcutHelpVisible(true);
             ui.frame(now + 21);
-            // The last tool's touch area ends at y274; the lower sample
-            // timeline starts y288, so the unused gap must stay inactive.
-            ui.touch(0, 351.f, 277.f, now + 12);
-            ui.touch(2, 351.f, 277.f, now + 12);
+            // The last tool's touch area ends at y285, before the timeline.
+            ui.touch(0, 351.f, 286.f, now + 12);
+            ui.touch(2, 351.f, 286.f, now + 12);
             CHECK(!app.sequencerMode(),
                   "%s central toolbar does not overlap bottom timeline",
                   light ? "LIGHT" : "DARK");
@@ -209,7 +212,10 @@ int main() {
                   light ? "LIGHT" : "DARK");
             app.exitSequencer();
 
-            app.selectMetronome();
+            ui.frame(now + 13);
+            ui.touch(0, 351.f, 220.f, now + 14);
+            ui.touch(2, 351.f, 220.f, now + 14);
+            CHECK(app.metronomeSelected(), "%s MET icon selects the metronome directly", light ? "LIGHT" : "DARK");
             ui.frame(now + 14);
             bool bigTempoButton = false, metroVisible = false;
             for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
@@ -1511,7 +1517,7 @@ int main() {
         click(91.f, 26.f); // HOME ENTER again, must not lock up
         CHECK(app.browserDir() == "PACKS" && !app.wantFile(),
               "BACK then ENTER at root remains repeatable without external file picker");
-        click(351.f, 248.f);
+        click(351.f, 268.f);
         CHECK(hasText("SAVE PROJECT") && hasText("LOAD PROJECT") &&
               hasText("EXPORT ALL LOOPS"), "PROJECT retains saving and exporting actions");
         click(530.f, 76.f); // EXPORT ALL LOOPS in full-width PROJECT menu

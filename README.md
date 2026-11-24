@@ -2,6 +2,8 @@
 
 Sampler, editor de audio y **looper de 16 pistas** para Android. El teléfono ejecuta el motor de audio, la biblioteca y la interfaz; el **M-VAVE FM-1** puede actuar como superficie de control MIDI por **USB**, con botones, teclado y encoders. El motor y la interfaz se encuentran en `engine/`; Android integra ese motor mediante JNI.
 
+> **Versión 0.42.4 (en validación):** icono MET directo en HOME; seis iconos centrales con separación uniforme y alineación inferior de transporte, PROJECT y K1–K4.
+
 > **Versión 0.42.3 — APK firmada y validada; promoción estable pendiente:** EXPORT SONG indica el estado de exportación en naranja hasta confirmar que el WAV se ha guardado en Downloads. [Notas 0.42.3](docs/RELEASE_NOTES_0423.md).
 
 > **Versión 0.42.2 (preview anterior):** Correct Tempo añade DECIMALS en K4 a la derecha de TAP TEMPO, con precisión de 0,01 BPM. [Notas 0.42.2](docs/RELEASE_NOTES_0422.md).
@@ -42,7 +44,7 @@ Las compilaciones debug de GitHub usan **`com.ferluht.fm1sampler.scenes`**; la v
 
 ## Guía rápida 0.40: 16 pistas + metrónomo
 
-**Primeros pasos:** el **icono de SEQUENCER** está en la columna central junto a tema, micrófono, biblioteca y proyectos, y el último icono (PROJECT) queda alineado horizontalmente con PLAY/STOP/REC, sin invadir la línea temporal inferior. El BPM se muestra en el lado izquierdo del dibujo de la cinta, no junto a los knobs. En **HOME / COMPOSE**, selecciona una de las pistas **T1–T16**; después de T16 aparece **MET**, que es un controlador independiente y no guarda audio. La vista de pistas tiene dos columnas de ocho. El secuenciador mantiene sus **ocho pistas propias** y sus **ocho escenas**.
+**Primeros pasos:** los seis iconos centrales (tema, micrófono, SEQ, LIBRARY, MET y PROJECT) tienen separación vertical uniforme; PROJECT y PLAY/STOP/REC/CLEAR se alinean con la parte inferior de K1–K4, sin invadir la línea temporal. Toca MET para seleccionar directamente el metrónomo. El BPM se muestra en el lado izquierdo del dibujo de la cinta, no junto a los knobs. En **HOME / COMPOSE**, selecciona una de las pistas **T1–T16**; después de T16 aparece **MET**, que es un controlador independiente y no guarda audio. La vista de pistas tiene dos columnas de ocho. El secuenciador mantiene sus **ocho pistas propias** y sus **ocho escenas**.
 
 **Control de MET:** abre MET con el selector de pista o el SELECT físico; pulsa **SEL** para cambiar entre sus tres páginas. En el móvil, usa **los mismos pequeños indicadores de página de las pistas normales**, a la derecha del nombre de página; los botones grandes TEMPO / PITCH y METER / CLICK ya no aparecen:
 
@@ -67,7 +69,7 @@ Los modos son **PLAY/REC** (clic durante PLAY y REC), **REC** (solo grabación),
 - **SEQUENCER (0.39):** botón en HOME que abre **8 pistas adicionales**, con 16 pasos por página, patrones 1/4–64/4, samples independientes seleccionados desde LIBRARY, transporte sincronizado y pantalla Light/Dark. [Controles, tempo y firma](docs/FM1_SEQUENCER_039.md).
 - **PLAY, STOP, REC/OVERDUB y CLEAR** en HOME. PLAY y STOP controlan la cinta; durante la primera toma, el transporte puede finalizar la grabación antes de detener la reproducción. REC arma la primera toma y después permite overdub por pista.
 - **Visor de forma de onda** del sample, selección de modo, ventana START/END y voces; **timeline de los loops** con cabezal de reproducción y *scrub* táctil.
-- Barra de herramientas: **tema**, **micrófono**, **SEQ**, **LIBRARY**, **PROJECT**. El micrófono permite grabar un sample a partir de un umbral de señal ajustable.
+- Barra de herramientas: **tema**, **micrófono**, **SEQ**, **LIBRARY**, **MET**, **PROJECT**. MET selecciona la pista de metrónomo sin tener que recorrer T1–T16. El micrófono permite grabar un sample a partir de un umbral de señal ajustable.
 - **BACK/ENTER** en HOME y en LIBRARY: navegar por directorios internos sin abrir el selector de Android. Desde `FM1-SAMPLER`, ENTER abre de nuevo la última carpeta elegida aunque BACK haya dejado la raíz sin elemento seleccionado (corrección 0.38.9).
 - **PRESETS físico**: mueve el selector por carpetas y archivos, un elemento por paso. Al elegir un WAV compatible lo carga **inmediatamente** en la pista activa; ENTER es solo para carpetas y **no** para reproducir un WAV.
 - **LIBRARY** abre la biblioteca interna; botones **+ IMPORT ZIP**, **SAVE BACKUP** e **IMPORT BACKUP**. Los ZIP de paquetes externos no son lo mismo que los ZIP de backup completos.
