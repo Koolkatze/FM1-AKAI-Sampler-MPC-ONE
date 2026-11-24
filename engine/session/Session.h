@@ -13,7 +13,7 @@
 
 class Session {
 public:
-    static constexpr int kTracks = 8;
+    static constexpr int kTracks = 16; // sixteen independent audio tracks; metronome is separate
     static constexpr int kVoiceMax = 32;
     static constexpr int kLoopBins = 400;
     static constexpr int kScenes = 12;   // C1..B1
@@ -32,6 +32,9 @@ public:
         int seqStep, seqBeats;
         int seqScene; // 0..7 selected active sequencer scene, -1 when silent
         bool sequencerEnabled;
+        int metroBeats, metroMode;
+        float metroSwing, metroVolume, metroPhase;
+        bool metroRecording;
         bool flexProcessing;  // true while pitch-preserving loop render is pending
         float master_peak;
         float track_peak[kTracks];
@@ -49,8 +52,8 @@ public:
         // another scene is active in LOOP or SONG performance mode.
         bool compositionValid;
         int32_t compositionSamples;
-        uint8_t compositionTracks;
-        uint8_t sceneTracks[kScenes]; // which of 8 loops belongs to each scene
+        uint16_t compositionTracks;
+        uint16_t sceneTracks[kScenes]; // which of 16 looper tracks belongs to each scene
         uint8_t sceneSequencers[kScenes]; // 0 = no sequencer, 1..8 = complete step scene
         int activeScene, queuedScene;
         bool songPlaying;
@@ -87,6 +90,9 @@ public:
     void setMasterBpm(float bpm);
     void setGlobalPitch(float semitones, float cents);  // independent of tempo
     void setPitchedTempo(float ratio);                 // tape-like coupling
+    // Metronome modes: 0 PLAY/REC, 1 REC, 2 OFF, 3 PLAY/REC MON, 4 REC MON, 5 OFF MON.
+    // MON means hardware headphone monitor: never add click to the phone mix.
+    void setMetronome(int beats, float swing, float volume, int mode);
 
 
     // ---- sampler (per track) ----
@@ -128,12 +134,12 @@ public:
     void scrubEnd();                      // the finger lifts: the tape returns to the transport speed, or comes to a stop
     void seek(float fraction);            // move the playhead to a place of the loop (0..1): all loops share it
     void setCue(bool on, int division);    // momentary beat-repeat from current position; 0..5 = 1/1..1/32
-    void captureScene(int slot, uint8_t tracks = 0xff, int sequencerScene = -1); // -1 OFF; otherwise one of 8 complete sequencer scenes
+    void captureScene(int slot, uint16_t tracks = 0xffff, int sequencerScene = -1); // -1 OFF; otherwise one of 8 complete sequencer scenes
     void clearScene(int slot);
     void launchScene(int slot);            // quantized to the next bar
     void startSong(const std::vector<int>& order);
     void stopSong();
-    void beginPerformanceMode(); // snapshot current eight-track composition on audio thread
+    void beginPerformanceMode(); // snapshot current sixteen-track composition on audio thread
     void restoreComposition();   // EXIT / COMPOSE / HOME restore audio clips and transport
     void cancelSceneLaunch();  // leave LOOP mode without stopping currently audible loops
     void saveArrangement(const std::vector<int>& order);
