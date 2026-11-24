@@ -320,6 +320,7 @@ private:
     // FM-1 link
     struct Frame { int key; std::vector<uint8_t> bytes; };
     std::deque<Frame> pending_; size_t pendingBytes_ = 0;
+    uint32_t lastMetroAt_ = 0;
     uint32_t gap_ = 16, lastSend_ = 0, lastPing_ = 0, lastLoss_ = 0, lastRaise_ = 0, dropped_ = 0, healAt_ = 0, lastDraw_ = 0, nowMs_ = 0;
     bool haveDropBase_ = false, needClear_ = true, needResend_ = false, linkSeen_ = false;
     int pingId_ = 0, healCursor_ = 0;
