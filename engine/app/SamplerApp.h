@@ -253,7 +253,7 @@ private:
     Page page_ = P_HOME;
     int track_ = 0;
     bool metroSelected_ = false;
-    int metroBeats_ = 4, metroMode_ = 0;
+    int metroBeats_ = 4, metroMode_ = 2; // OFF until user enables click
     float metroSwing_ = 0.f, metroVolume_ = 0.7f;
     void applyMetronome() { s_.setMetronome(metroBeats_, metroSwing_, metroVolume_, metroMode_); }
     std::array<TrackState, kTracks> ts_;
