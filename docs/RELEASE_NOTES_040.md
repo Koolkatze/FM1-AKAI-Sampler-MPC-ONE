@@ -4,7 +4,7 @@
 
 ### New in 0.40
 
-- **HOME UI adjustment:** SEQUENCER opens from a compact step-grid icon in the central tools column. The five tool icons are shifted upward to keep the bottom sample/timeline viewer clear. The permanently visible TEMPO/PITCH button has been removed; MET uses the same two miniature page selectors as the other tracks.
+- **HOME UI adjustment:** SEQUENCER opens from a compact step-grid icon in the central tools column. The five tool icons are evenly spaced so the bottom PROJECT icon aligns with PLAY/STOP/REC, without overlapping the bottom sample/timeline viewer. BPM now appears at the left of the HOME tape illustration instead of beside the sample knobs. The permanently visible TEMPO/PITCH button has been removed; MET uses the same two miniature page selectors as the other tracks.
 - **16 independent looper tracks** (T1–T16) in COMPOSE and scenes, with a **dedicated 17th metronome control slot (MET)**. MET does not occupy an audio track.
 - Existing **8 independent sequencer lanes** and **8 sequencer scenes** remain available alongside all 16 looper tracks.
 - Two MET knob pages, switched by **SEL** on FM-1 or the Android screen:
