@@ -699,6 +699,10 @@ void SamplerUI::deck(Rect r) {
         text(show.x + show.w / 2, show.y + show.h / 2, 8, kPaper, "INFO", 1, true);
         tap(show, [this] { setShortcutHelpVisible(true); });
     }
+    // Show the active project BPM on the lower-left of the tape illustration
+    // in BOTH info states. The reels end above it; do not put BPM beside the
+    // sample knobs or over the bottom waveform/timeline.
+    text(M, 222, 11, kOrange, num("%.0f BPM", st_.bpm), 0, true);
     // transport: play, stop, record / overdub, clear the loop of this track; the active one is orange and underlined
     const float ty = 248;
     for (int i = 0; i < 4; i++) {
@@ -714,47 +718,43 @@ void SamplerUI::deck(Rect r) {
             else app_.loopClearTrack();
         });
     }
-    // Five equal-size touch areas in the original central icon column.
-    // SEQUENCER takes the middle slot, not the sample/knob panel.
-    // Five compact icon rows preserve the top filename viewer (text at y=27)
-    // and the bottom timeline (starts y=288): the first icon begins at y=44
-    // and the last touch target ends at y=251. No icon enters x>=440, where
-    // the sample display and four knobs start.
+    // Five icons evenly spaced across the central column. The final PROJECT
+    // icon shares the exact y=248 baseline of PLAY / STOP / REC / CLEAR.
+    // Touch regions remain separate and finish at y=274, above the y=288
+    // timeline. The column ends before x=440 (sample/knob controls).
     const uint32_t micCol = mic == 1 || mic == 2 ? kOrange : kPaper;
-    icon(4, mx, 54, kPaper);
-    tap({mx - 32, 32, 64, 43}, [this] { setLight(!theme::light); });
-    icon(5, mx, 98, micCol);
-    tap({mx - 32, 76, 64, 43}, [this] { app_.micSample(); });
-    icon(11, mx, 142, kPaper); // ink steps with orange active beats
-    text(mx, 162, 8.5f, kDim, "SEQ", 1, true);
-    tap({mx - 32, 120, 64, 43}, [this] {
+    icon(4, mx, 32, kPaper);
+    tap({mx - 32, 6, 64, 52}, [this] { setLight(!theme::light); });
+    icon(5, mx, 86, micCol);
+    tap({mx - 32, 60, 64, 52}, [this] { app_.micSample(); });
+    icon(11, mx, 140, kPaper); // ink steps with orange active beats
+    text(mx, 160, 8.5f, kDim, "SEQ", 1, true);
+    tap({mx - 32, 114, 64, 52}, [this] {
         app_.enterSequencer();
         sheetOpen_ = false;
         tempoOpen_ = false;
     });
     // HOME folder icon restores the library with IMPORT ZIP. The physical
     // PRESETS encoder continues to navigate the same folder selection.
-    icon(6, mx, 186, kPaper);
-    text(mx, 206, 8.5f, kDim, "LIBRARY", 1, true);
-    tap({mx - 32, 164, 64, 43}, [this] { openLibrary(); });
-    icon(7, mx, 230, projectOpen_ ? kOrange : kPaper);
-    tap({mx - 32, 208, 64, 43}, [this] { projectOpen_ = true; });
+    icon(6, mx, 194, kPaper);
+    text(mx, 214, 8.5f, kDim, "LIBRARY", 1, true);
+    tap({mx - 32, 168, 64, 52}, [this] { openLibrary(); });
+    icon(7, mx, ty, projectOpen_ ? kOrange : kPaper);
+    tap({mx - 32, ty - 26, 64, 52}, [this] { projectOpen_ = true; });
     // the sample of this track, its page and the four knobs of the page
     if (app_.metronomeSelected()) {
         rrect({x0, 14, w0, 118}, R_CARD, SURFACE);
         stroke({x0, 14, w0, 118}, R_CARD, OUTLINE, 1);
         text(x0 + 14, 46, 19, ACCENT, "METRONOME", 0, true);
         text(x0 + 14, 73, 12, TEXT,
-             std::to_string(st_.metroBeats) + "/4   " + num("%.0f BPM", st_.bpm), 0, true);
+             "TIME SIGNATURE  " + std::to_string(st_.metroBeats) + "/4", 0, true);
         text(x0 + 14, 99, 10, DIM,
              st_.metroMode >= 3 ? "FM-1 JACK MONITOR - PHONE MAIN MIX" :
              st_.metroMode == 2 ? "CLICK OFF" : "CLICK TO MAIN MIX", 0);
-        text(zr - 5, 274, 10, kOrange, num("%.0f BPM", st_.bpm), 2, true);
     } else {
         sampleView({x0, 14, w0, 118});
         // SEQUENCER now lives in the central icon column. Tempo/pitch
         // controls are accessible only after selecting the MET track.
-        text(zr - 5, 274, 10, kOrange, num("%.0f BPM", st_.bpm), 2, true);
     }
     const float py = 163;
     text(x0, py, 15, kOrange, SamplerApp::pageName(app_.page()), 0, true);
