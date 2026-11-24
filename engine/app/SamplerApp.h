@@ -20,9 +20,9 @@ struct SurfaceCell { std::string text; uint16_t fg = 0, bg = 0; bool known = fal
 class SamplerApp {
 public:
     using Send = std::function<void(const uint8_t*, size_t)>;
-    static constexpr int kTracks = 8;
+    static constexpr int kTracks = Session::kTracks;
     enum Button { OCT_DOWN, OCT_UP, FX, SEL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC, STOP };  // STOP=14 is an optional external MIDI/software transport; native FM-1 has PLAY
-    enum Page { P_HOME, P_FX, P_ENV, P_LFO, P_ARP, P_SEQ, P_MIX, P_KEY, P_SAVE, P_LEN, P_CUE, P_STEP, P_TEMPO, kPages };
+    enum Page { P_HOME, P_FX, P_ENV, P_LFO, P_ARP, P_SEQ, P_MIX, P_KEY, P_SAVE, P_LEN, P_CUE, P_STEP, P_TEMPO, P_METRO_TEMPO, P_METRO_SETTINGS, kPages };
     struct Knob {
         std::string name, value;
         float norm = 0;
@@ -80,6 +80,8 @@ public:
 
     static const char* pageName(Page p);
     int track() const { return track_; }
+    bool metronomeSelected() const { return metroSelected_; }
+    void selectMetronome();
     void selectTrack(int t);
     Knobs knobs();
     Knobs knobs(Page p);
@@ -165,7 +167,7 @@ public:
     void exitPerformanceMode();
     int selectedScene() const { return selectedScene_; }
     void selectScene(int slot, bool trigger = false);
-    uint8_t sceneTracks() const { return sceneTracks_; }
+    uint16_t sceneTracks() const { return sceneTracks_; }
     int loopSequencerScene() const { return loopSeqScene_; } // -1 OFF, 0..7 whole sequencer scene
     void selectLoopSequencerScene(int slot);
     void toggleSceneTrack(int t);
@@ -250,6 +252,10 @@ private:
     Send send_;
     Page page_ = P_HOME;
     int track_ = 0;
+    bool metroSelected_ = false;
+    int metroBeats_ = 4, metroMode_ = 0;
+    float metroSwing_ = 0.f, metroVolume_ = 0.7f;
+    void applyMetronome() { s_.setMetronome(metroBeats_, metroSwing_, metroVolume_, metroMode_); }
     std::array<TrackState, kTracks> ts_;
     bool sequencerMode_ = false;
     int seqTrack_ = 0, seqPage_ = 0, seqBeats_ = 4, seqEditStep_ = 0;
@@ -302,7 +308,7 @@ private:
     bool loopAny_ = false;
     bool songMode_ = false, scenesLoaded_ = false, sceneKeys_ = false;
     int selectedScene_ = 0, songSelected_ = -1;
-    uint8_t sceneTracks_ = 0xff;   // which loop tracks to capture in the selected pad
+    uint16_t sceneTracks_ = 0xffff;   // which loop tracks to capture in the selected pad
     int loopSeqScene_ = -1; // optional complete sequencer scene chosen for LOOP pad
     std::vector<int> songOrder_;
     int mic_ = 0, micTrack_ = 0;
