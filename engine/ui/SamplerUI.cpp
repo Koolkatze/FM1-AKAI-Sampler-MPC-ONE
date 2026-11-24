@@ -725,7 +725,7 @@ void SamplerUI::deck(Rect r) {
     tap({mx - 32, 32, 64, 43}, [this] { setLight(!theme::light); });
     icon(5, mx, 98, micCol);
     tap({mx - 32, 76, 64, 43}, [this] { app_.micSample(); });
-    icon(11, mx, 142, kOrange);
+    icon(11, mx, 142, kPaper); // ink steps with orange active beats
     text(mx, 162, 8.5f, kDim, "SEQ", 1, true);
     tap({mx - 32, 120, 64, 43}, [this] {
         app_.enterSequencer();
