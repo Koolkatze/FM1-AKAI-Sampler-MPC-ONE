@@ -33,7 +33,7 @@ public:
         int seqScene; // 0..7 selected active sequencer scene, -1 when silent
         bool sequencerEnabled;
         int metroBeats, metroMode;
-        float metroSwing, metroVolume, metroPhase;
+        float metroSwing, metroVolume, metroPhase, metroBpm;
         bool metroRecording;
         bool flexProcessing;  // true while pitch-preserving loop render is pending
         float master_peak;
