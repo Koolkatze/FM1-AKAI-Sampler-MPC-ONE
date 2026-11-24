@@ -253,6 +253,15 @@ struct Session::Impl {
     bool scrubActive = false, scrubTail = false; double scrubPos = 0, scrubV = 0; std::atomic<double> scrubTarget{0};
     float scrubFilter = 0.f, scrubLastL = 0.f, scrubLastR = 0.f;
     float bpm = 120.f; int loopBars = 4;
+    // Independent, sample-clocked click. No metronome samples are written
+    // into loop clips, stem exports, or offline/song renders.
+    int metroBeats = 4, metroMode = 2;
+    float metroSwing = 0.f, metroVolume = .7f;
+    double metroPosition = 0.; // beat position within current N/4 measure
+    int metroClickAge = 999999;
+    std::atomic<int> a_metroBeats{4}, a_metroMode{2};
+    std::atomic<float> a_metroSwing{0.f}, a_metroVolume{.7f}, a_metroPhase{0.f};
+    std::atomic<bool> a_metroRecording{false};
     double pos = 0; int32_t loopSamples = 0;
     std::atomic<float> tapeSpeed{1.f}; double tapePos = 0;   // ONE tape pointer for every loop clip, so they never drift apart
     // CUE / beat repeat uses a separate read head. The original transport runs underneath
@@ -1210,10 +1219,36 @@ struct Session::Impl {
         for (int i = 0; i < n * 2; i++) out[i] += wet[(size_t)i] * ret[0];
         delay.process(sendBus[1].data(), wet.data(), n);
         for (int i = 0; i < n * 2; i++) out[i] += wet[(size_t)i] * ret[1];
+        // Quarter-note clock is continuous even in silence, so changing click
+        // mode does not restart the beat grid. Swing delays alternate clicks
+        // by up to half a beat while the transport BPM stays unchanged.
+        const bool metroRec = freeRec || freeArmed || sampling || armedWait ||
+            std::any_of(tracks.begin(), tracks.end(), [](const auto& track) { return track->clipRec; });
+        a_metroRecording = metroRec;
+        const bool metroActive = metroMode == 0 || metroMode == 3 ||
+            ((metroMode == 1 || metroMode == 4) && metroRec);
+        const bool metroPhone = metroActive && metroMode < 3 && !offlineRender;
+        const double beatStep = std::max(1.0, (double)bpm * pitchedTempo) / (60.0 * sr);
+        const int clickLength = std::max(1, sr / 30);
         float mp = 0.f;
         for (int i = 0; i < n; ++i) {
-            float l = std::tanh(out[2 * i] * masterVol);
-            float r = std::tanh(out[2 * i + 1] * masterVol);
+            const double beat = metroPosition;
+            metroPosition += beatStep;
+            if (metroPosition >= metroBeats) metroPosition = std::fmod(metroPosition, (double)metroBeats);
+            const int beatIndex = (int)std::floor(beat);
+            const double onset = beatIndex + ((beatIndex & 1) ? .5 * metroSwing : 0.0);
+            const bool crossed = beat <= onset && beat + beatStep > onset;
+            if (crossed) metroClickAge = 0;
+            float click = 0.f;
+            if (metroClickAge < clickLength) {
+                const float age = (float)metroClickAge / sr;
+                const float freq = beatIndex == 0 ? 1600.f : 1050.f;
+                click = std::sin(6.28318530718f * freq * age) *
+                    std::exp(-age * 150.f) * metroVolume * .28f;
+                ++metroClickAge;
+            }
+            float l = std::tanh((out[2 * i] + (metroPhone ? click : 0.f)) * masterVol);
+            float r = std::tanh((out[2 * i + 1] + (metroPhone ? click : 0.f)) * masterVol);
             // Scrubbing follows a potentially fast, discontinuous read head.
             // A short smoothed, tape-like low-pass suppresses discontinuities
             // without filtering ordinary playback or stored loop PCM.
@@ -1225,6 +1260,7 @@ struct Session::Impl {
             out[2 * i] = l; out[2 * i + 1] = r;
             mp = std::max(mp, std::max(std::fabs(l), std::fabs(r)));
         }
+        a_metroPhase.store((float)metroPosition);
         a_master.store(std::max(mp, a_master.load() * 0.92f));
         if (playing) {
             // Scene boundaries and the sequencer follow actual tape movement.
@@ -1407,6 +1443,20 @@ void Session::setGlobalPitch(float semis, float cents) {
         for (auto& track : d->tracks)
             if (track->sampler) track->sampler->setBend(d->seqPitchSemis + d->seqPitchCents / 100.f);
         d->refreshLoopProcessing();
+    });
+}
+void Session::setMetronome(int beats, float swing, float volume, int mode) {
+    if (!std::isfinite(swing) || !std::isfinite(volume)) return;
+    beats = std::max(1, std::min(64, beats));
+    swing = clampf(swing, 0.f, 1.f);
+    volume = clampf(volume, 0.f, 1.f);
+    mode = std::max(0, std::min(5, mode));
+    d->post([this, beats, swing, volume, mode] {
+        if (d->metroBeats != beats) d->metroPosition = std::fmod(d->metroPosition, (double)beats);
+        d->metroBeats = beats; d->metroSwing = swing;
+        d->metroVolume = volume; d->metroMode = mode;
+        d->a_metroBeats = beats; d->a_metroSwing = swing;
+        d->a_metroVolume = volume; d->a_metroMode = mode;
     });
 }
 void Session::setPitchedTempo(float ratio) {
@@ -2581,6 +2631,9 @@ Session::Status Session::status() const {
     s.seqStep = d->a_seqStep; s.seqBeats = d->a_seqBeats;
     s.seqScene = d->a_seqScene;
     s.sequencerEnabled = d->a_seqEnabled;
+    s.metroBeats = d->a_metroBeats; s.metroSwing = d->a_metroSwing;
+    s.metroVolume = d->a_metroVolume; s.metroMode = d->a_metroMode;
+    s.metroPhase = d->a_metroPhase; s.metroRecording = d->a_metroRecording;
     s.flexProcessing = d->a_flexPending;
     s.master_peak = d->a_master; s.cpu_permille = d->a_cpu;
     const uint32_t cm = d->a_clip_mask, rm = d->a_cliprec_mask;
