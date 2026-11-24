@@ -612,6 +612,15 @@ void SamplerUI::icon(int kind, float cx, float cy, uint32_t c) {
             rrect({cx - 11 + i * 2.7f, cy - heights[i] / 2.f, 2, heights[i]}, 0, c);
         break;
     }
+    case 11: { // sequencer: a compact two-row step grid, same flat icon system
+        for (int i = 0; i < 8; ++i) {
+            const float sx = cx - 10.5f + (i % 4) * 5.7f;
+            const float sy = cy - 10.f + (i / 4) * 11.f;
+            rrect({sx, sy, 4.2f, 4.2f}, R_CONTROL, i == 0 || i == 3 || i == 5 ? kOrange : c);
+        }
+        line(cx - 10.5f, cy + 13.f, cx + 10.5f, cy + 13.f, c, 1.5f);
+        break;
+    }
 
     }
 }
@@ -642,7 +651,7 @@ void SamplerUI::deck(Rect r) {
         const std::string route = directory.empty() ? "FM1-SAMPLER /" :
                                   "FM1-SAMPLER / " + directory;
         text(M, 61, 9.2f, kDim, fit(route, mx - M - 55, 9.2f), 0, false);
-        // Only the large orange T1..T8 is drawn left of the waveform.
+        // The selected T1..T16 or MET is drawn left of the waveform.
         // No background, outline, decorative stripe or "TRACK" caption.
         // The transparent touch target still cycles through tracks.
         const Rect trackTap{mx + 38, 35, x0 - (mx + 38) - 5, 97};
@@ -705,16 +714,27 @@ void SamplerUI::deck(Rect r) {
             else app_.loopClearTrack();
         });
     }
-    // tools in the middle: theme, microphone, file from disk, project
+    // Five equal-size touch areas in the original central icon column.
+    // SEQUENCER takes the middle slot, not the sample/knob panel.
     const uint32_t micCol = mic == 1 || mic == 2 ? kOrange : kPaper;
-    icon(4, mx, 56, kPaper);  tap({mx - 32, 28, 64, 56}, [this] { setLight(!theme::light); });
-    icon(5, mx, 120, micCol); tap({mx - 32, 92, 64, 56}, [this] { app_.micSample(); });
-    // HOME folder icon restores the familiar library page with IMPORT ZIP,
-    // while the physical PRESETS knob continues using the same directory cursor.
-    icon(6, mx, 184, kPaper);
-    text(mx, 211, 8.5f, kDim, "LIBRARY", 1, true);
-    tap({mx - 32, 156, 64, 56}, [this] { openLibrary(); });
-    icon(7, mx, 248, projectOpen_ ? kOrange : kPaper); tap({mx - 32, 220, 64, 56}, [this] { projectOpen_ = true; });
+    icon(4, mx, 32, kPaper);
+    tap({mx - 32, 6, 64, 52}, [this] { setLight(!theme::light); });
+    icon(5, mx, 86, micCol);
+    tap({mx - 32, 60, 64, 52}, [this] { app_.micSample(); });
+    icon(11, mx, 140, kOrange);
+    text(mx, 160, 8.5f, kDim, "SEQ", 1, true);
+    tap({mx - 32, 114, 64, 52}, [this] {
+        app_.enterSequencer();
+        sheetOpen_ = false;
+        tempoOpen_ = false;
+    });
+    // HOME folder icon restores the library with IMPORT ZIP. The physical
+    // PRESETS encoder continues to navigate the same folder selection.
+    icon(6, mx, 194, kPaper);
+    text(mx, 215, 8.5f, kDim, "LIBRARY", 1, true);
+    tap({mx - 32, 168, 64, 52}, [this] { openLibrary(); });
+    icon(7, mx, 248, projectOpen_ ? kOrange : kPaper);
+    tap({mx - 32, 222, 64, 52}, [this] { projectOpen_ = true; });
     // the sample of this track, its page and the four knobs of the page
     if (app_.metronomeSelected()) {
         rrect({x0, 14, w0, 118}, R_CARD, SURFACE);
@@ -725,30 +745,36 @@ void SamplerUI::deck(Rect r) {
         text(x0 + 14, 99, 10, DIM,
              st_.metroMode >= 3 ? "FM-1 JACK MONITOR - PHONE MAIN MIX" :
              st_.metroMode == 2 ? "CLICK OFF" : "CLICK TO MAIN MIX", 0);
-        button({x0 + 6, 260, 124, 27}, "TEMPO / PITCH",
-               app_.page() == SamplerApp::P_METRO_TEMPO,
-               [this] { app_.gotoPage(SamplerApp::P_METRO_TEMPO); }, 9, true);
-        button({x0 + 140, 260, 124, 27}, "METER / CLICK",
-               app_.page() == SamplerApp::P_METRO_SETTINGS,
-               [this] { app_.gotoPage(SamplerApp::P_METRO_SETTINGS); }, 9, true);
-        text(zr - 5, 274, 10, kOrange, "MON", 2, true);
+        text(zr - 5, 274, 10, kOrange, num("%.0f BPM", st_.bpm), 2, true);
     } else {
         sampleView({x0, 14, w0, 118});
-        // New modes sit on HOME without replacing its tape/editor.
-        button({x0 + 6, 260, 121, 27}, "SEQUENCER", false,
-               [this] { app_.enterSequencer(); sheetOpen_ = false; }, 10, true);
-        button({x0 + 135, 260, 99, 27}, "TEMPO / PITCH", tempoOpen_,
-               [this] { tempoOpen_ = true; }, 9);
+        // SEQUENCER now lives in the central icon column. Tempo/pitch
+        // controls are accessible only after selecting the MET track.
         text(zr - 5, 274, 10, kOrange, num("%.0f BPM", st_.bpm), 2, true);
     }
     const float py = 163;
     text(x0, py, 15, kOrange, SamplerApp::pageName(app_.page()), 0, true);
-    if (!app_.metronomeSelected())
-        for (int i = 0; i < 11; i++) {   // every sample page remains accessible
+    if (app_.metronomeSelected()) {
+        // Use precisely the same 19x28 touch targets and 15x4 page markers
+        // as ordinary sample tracks, in the same right-aligned position.
+        const SamplerApp::Page metroTabs[] = {
+            SamplerApp::P_METRO_TEMPO, SamplerApp::P_METRO_SETTINGS
+        };
+        for (int i = 0; i < 2; ++i) {
+            Rect nr{zr - (2 - i) * 19.f, py - 14, 19, 28};
+            rrect({nr.x + 2, py - 2, 15, 4}, 0,
+                  metroTabs[i] == app_.page() ? kOrange : kLine);
+            tap(nr, [this, i] {
+                app_.gotoPage(i == 0 ? SamplerApp::P_METRO_TEMPO : SamplerApp::P_METRO_SETTINGS);
+            });
+        }
+    } else {
+        for (int i = 0; i < 11; ++i) { // all original sample pages still accessible
             Rect nr{zr - (11 - i) * 19.f, py - 14, 19, 28};
             rrect({nr.x + 2, py - 2, 15, 4}, 0, kTabs[i] == app_.page() ? kOrange : kLine);
             tap(nr, [this, i] { app_.gotoPage(kTabs[i]); });
         }
+    }
     for (int i = 0; i < 4; i++) knob(x0 + 49 + i * 100, 220, app_.page(), i);
     timeline({M, 288, W_ - 2 * M, H_ - 288 - 8});
 }
@@ -766,14 +792,13 @@ void SamplerUI::sequencerView() {
            [this] { app_.transportPlay(); }, 10, true);
     button({162, 9, 91, 31}, "LIBRARY", false,
            [this] { openLibrary(); }, 10);
-    button({260, 9, 123, 31}, "TEMPO / PITCH", tempoOpen_,
-           [this] { tempoOpen_ = true; }, 9);
+    // Tempo/pitch is now exclusively under MET; keep scene switching here.
     if (W_ >= 760) {
-        button({393, 9, 34, 31}, "<", false,
+        button({260, 9, 34, 31}, "<", false,
                [this] { app_.selectSequencerScene(app_.sequencerScene() - 1); }, 12);
-        text(475, 25, 11, ACCENT,
+        text(355, 25, 11, ACCENT,
              "SCENE " + std::to_string(app_.sequencerScene() + 1) + "/8", 1, true);
-        button({524, 9, 34, 31}, ">", false,
+        button({416, 9, 34, 31}, ">", false,
                [this] { app_.selectSequencerScene(app_.sequencerScene() + 1); }, 12);
     }
     text(W_ - 16, 25, 16, st_.flexProcessing ? ACCENT : TEXT,
@@ -989,9 +1014,25 @@ void SamplerUI::sampleArea(Rect r) {
 
 void SamplerUI::pagePanel(Rect r) {
     const float tw = (r.w - 4 * 4) / 5;
-    for (int i = 0; i < 11; i++) {
-        Rect c{r.x + (i % 5) * (tw + 4), r.y + (i / 5) * 32, tw, 28};
-        button(c, kTabName[i], app_.page() == kTabs[i], [this, i] { app_.gotoPage(kTabs[i]); }, 9.5f);
+    if (app_.metronomeSelected()) {
+        // The editor uses the same compact controls as every other track,
+        // but only the two pages belonging to MET are available.
+        const SamplerApp::Page metroTabs[] = {
+            SamplerApp::P_METRO_TEMPO, SamplerApp::P_METRO_SETTINGS
+        };
+        const char* metroNames[] = {"TEMPO", "CLICK"};
+        for (int i = 0; i < 2; ++i) {
+            Rect c{r.x + i * (tw + 4), r.y, tw, 28};
+            button(c, metroNames[i], app_.page() == metroTabs[i],
+                   [this, i] {
+                       app_.gotoPage(i == 0 ? SamplerApp::P_METRO_TEMPO : SamplerApp::P_METRO_SETTINGS);
+                   }, 9.5f);
+        }
+    } else {
+        for (int i = 0; i < 11; i++) {
+            Rect c{r.x + (i % 5) * (tw + 4), r.y + (i / 5) * 32, tw, 28};
+            button(c, kTabName[i], app_.page() == kTabs[i], [this, i] { app_.gotoPage(kTabs[i]); }, 9.5f);
+        }
     }
     auto k = app_.knobs();
     const float top = r.y + 104, rh = (r.h - 104) / 4;
