@@ -168,6 +168,13 @@ public:
     bool performanceActive() const { return sceneKeys_; }
     void setSongMode(bool song);
     void exitPerformanceMode();
+    bool enterPadEditor(bool sequencer);
+    void leavePadEditor();
+    void goHome();
+    bool padEditing() const { return padEditSlot_ >= 0; }
+    bool padSequencerEditing() const { return padEditing() && !padCompose_; }
+    bool padTrackWritable(int t) const { return !padEditing() || (padCompose_ && t >= 0 && t < kTracks && (padWritable_ & (1u << t))); }
+    int padEditSlot() const { return padEditSlot_; }
     int selectedScene() const { return selectedScene_; }
     void selectScene(int slot, bool trigger = false);
     uint16_t sceneTracks() const { return sceneTracks_; }
@@ -272,7 +279,11 @@ private:
         std::array<std::array<SequencerHit, kSeqSteps>, kSeqTracks> grid{};
         int beats = 4;
     };
-    std::array<SequencerScene, kSeqScenes> seqScenes_{};
+    std::array<SequencerScene, Session::kSeqBanks> seqScenes_{};
+    int padEditSlot_ = -1, globalSeqScene_ = 0;
+    bool padCompose_ = false;
+    uint16_t padWritable_ = 0;
+    void switchSequencerBank(int slot);
     int seqScene_ = 0;
     std::array<std::string, kSeqTracks> seqSourcePaths_{};
     std::array<std::string, kSeqTracks> seqSourceNames_{};

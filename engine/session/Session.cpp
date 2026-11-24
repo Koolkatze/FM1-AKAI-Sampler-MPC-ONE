@@ -144,6 +144,8 @@ struct Session::Impl {
         bool playing = false, stopping = false;
     } composition;
     int activeScene = -1, pendingScene = -1;
+    int padEdit = -1;
+    uint16_t padWritable = 0;
     double pendingAt = 0;   // audio frame of the next whole-bar boundary
     int sceneFadeFrames = 0;  // short scene start fade, no click on clip changes
     std::vector<int> songOrder;
@@ -209,7 +211,7 @@ struct Session::Impl {
         std::array<std::array<SequencerHit, Session::kSeqMaxSteps>, Session::kSeqTracks> steps{};
         int beats = 4;
     };
-    std::array<SeqBank, Session::kSeqScenes> seqBanks{};
+    std::array<SeqBank, Session::kSeqBanks> seqBanks{};
     int seqEditScene = 0, seqActiveScene = 0;
     bool seqPerformance = false, seqAudible = true;
     void activateSequencer(int slot) {
@@ -217,7 +219,7 @@ struct Session::Impl {
         // leaking into the next one. All eight sampler lanes are independent.
         for (auto& voice : seqSampler) if (voice) voice->allOff();
         seqActiveScene = slot;
-        seqAudible = slot >= 0 && slot < Session::kSeqScenes;
+        seqAudible = slot >= 0 && slot < Session::kSeqBanks;
         if (seqAudible) {
             const auto& sc = seqBanks[(size_t)slot];
             seqGrid = sc.steps;
@@ -534,7 +536,47 @@ struct Session::Impl {
         a_compositionSamples = composition.samples;
         a_compositionValid = true;
     }
+    uint16_t occupiedTracks() const {
+        uint16_t mask = 0;
+        for (int i = 0; i < kTracks; ++i) {
+            bool used = composition.valid ? composition.has[(size_t)i] : tracks[(size_t)i]->clipHas;
+            for (const auto& sc : scenes) used |= sc.filled && sc.has[(size_t)i];
+            if (used) mask |= (uint16_t)(1u << i);
+        }
+        return mask;
+    }
+    void savePadTrack(int i) {
+        if (padEdit < 0 || !(padWritable & (1u << i)) || activeScene != padEdit) return;
+        auto& sc = scenes[(size_t)padEdit];
+        auto& t = *tracks[(size_t)i];
+        if (!t.clipHas || !t.clip || t.clip->size() != (size_t)sc.samples * 2) return;
+        sc.has[(size_t)i] = true;
+        sc.clips[(size_t)i] = t.clip;
+        // HOME includes newly recorded tracks when the original timeline matches.
+        if (composition.valid && (composition.samples == 0 ||
+            (composition.samples == sc.samples && std::fabs(composition.tempo - sc.tempo) < .01f))) {
+            if (composition.samples == 0) {
+                composition.samples = sc.samples; composition.bars = sc.bars; composition.tempo = sc.tempo;
+                a_compositionSamples = sc.samples;
+            }
+            composition.has[(size_t)i] = true; composition.clips[(size_t)i] = t.clip;
+            a_compositionTracks = (uint16_t)(a_compositionTracks.load() | (1u << i));
+        }
+        updateSceneMask();
+    }
+    void finishPadEdit() {
+        if (padEdit < 0) return;
+        for (int i = 0; i < kTracks; ++i) if (padWritable & (1u << i)) {
+            auto& t = *tracks[(size_t)i];
+            t.clipRec = false; t.recPrevOk = false;
+            savePadTrack(i);
+            releaseAll(t);
+        }
+        padEdit = -1; padWritable = 0;
+        refreshLoopProcessing();
+    }
     void restoreComposition() {
+        finishPadEdit();
         // Cancel even a scene which was only queued; prevent it from firing
         // after EXIT/HOME/COMPOSE during the next audio callback.
         pendingScene = -1; songPlaying = false; songStep = -1;
@@ -576,6 +618,7 @@ struct Session::Impl {
     // Change all 8 loop tracks together. Copy-on-write clips make this constant-time
     // even when a scene contains long samples. No pointers into unloaded files.
     void activateScene(int slot) {
+        finishPadEdit();
         if (slot < 0 || slot >= Session::kScenes || !scenes[(size_t)slot].filled) return;
         const Scene& sc = scenes[(size_t)slot];
         if (sc.samples <= 0) return;
@@ -678,6 +721,7 @@ struct Session::Impl {
         a_compositionTracks = composeTracks;
         a_compositionSamples = composition.valid ? composition.samples : 0;
         a_compositionValid = composition.valid;
+        padEdit = -1; padWritable = 0;
         scenes = std::move(s.savedScenes); songOrder = std::move(s.arrangement);
         activeScene = s.active; pendingScene = s.queued;
         seqPerformance = s.hasCompose || s.active >= 0;
@@ -767,7 +811,7 @@ struct Session::Impl {
             for (int i = 0; ok && i < Session::kScenes; ++i) {
                 auto& sc = loaded[(size_t)i];
                 uint8_t filled = 0; get(filled);
-                if (scnV2) { get(sc.seqScene); if (sc.seqScene > Session::kSeqScenes) ok = false; }
+                if (scnV2) { get(sc.seqScene); if (sc.seqScene > Session::kSeqBanks) ok = false; }
                 if (!ok || !filled) continue;
                 sc.filled = true;
                 get(sc.samples); get(sc.tempo); get(sc.bars);
@@ -1232,8 +1276,9 @@ struct Session::Impl {
         const bool metroRec = freeRec || freeArmed || sampling || armedWait ||
             std::any_of(tracks.begin(), tracks.end(), [](const auto& track) { return track->clipRec; });
         a_metroRecording = metroRec;
-        const bool metroActive = metroMode == 0 || metroMode == 3 ||
-            ((metroMode == 1 || metroMode == 4) && metroRec);
+        const bool metroActive = !stopping && ((playing && (metroMode == 0 || metroMode == 3)) ||
+            ((metroMode == 0 || metroMode == 1 || metroMode == 3 || metroMode == 4) && metroRec));
+        if (!metroActive) { metroClickAge = sr; }
         const bool metroPhone = metroActive && metroMode < 3 && !offlineRender;
         const double tapeClock = playing && loopSamples > 0 && !scrubbing
             ? std::max(0.0, (double)tapeSpeed.load()) : 1.0;
@@ -1245,7 +1290,7 @@ struct Session::Impl {
         float mp = 0.f;
         for (int i = 0; i < n; ++i) {
             const double beat = metroPosition;
-            const double beatAdvance = beatStep *
+            const double beatAdvance = (metroActive ? beatStep : 0.0) *
                 (playing && loopSamples > 0 && ramp && !scrubbing ? rateArr[(size_t)i] : 1.0);
             metroPosition += beatAdvance;
             if (metroPosition >= metroBeats) metroPosition = std::fmod(metroPosition, (double)metroBeats);
@@ -1256,7 +1301,7 @@ struct Session::Impl {
             const bool swung = (beatIndex & 1) && beat <= offbeat && after > offbeat;
             const bool boundary = nextBeat != beatIndex &&
                 ((nextBeat & 1) == 0 || metroSwing <= 0.f);
-            if (swung || boundary || (beat == 0.0 && metroClickAge >= clickLength)) {
+            if (metroActive && (swung || boundary || (beat == 0.0 && metroClickAge >= clickLength))) {
                 metroClickAge = 0;
                 metroClickAccent = boundary ? nextBeat == 0 : (beatIndex == 0);
             }
@@ -1367,7 +1412,8 @@ void Session::play(bool on) {
             d->stopping = false;
             if (!d->playing) {
                 d->metroPosition = std::fmod(d->seqPhase / 4.0, (double)d->metroBeats);
-                d->metroClickAge = d->sr;
+                d->metroClickAge = 0;
+                d->metroClickAccent = (int)d->metroPosition == 0;
                 d->playing = true; d->rate = d->loopSamples > 0 ? 0.0 : 1.0;
             }   // the tape runs up from standstill
         }
@@ -1384,14 +1430,14 @@ void Session::setSequencerEnabled(bool on) {
     });
 }
 void Session::selectSequencerScene(int slot) {
-    if (slot < 0 || slot >= kSeqScenes) return;
+    if (slot < 0 || slot >= kSeqBanks) return;
     d->post([this, slot] {
         d->seqEditScene = slot;
         if (!d->seqPerformance) d->activateSequencer(slot);
     });
 }
 void Session::replaceSequencerScene(int slot, int beats, const SeqPattern& grid) {
-    if (slot < 0 || slot >= kSeqScenes) return;
+    if (slot < 0 || slot >= kSeqBanks) return;
     beats = std::max(1, std::min(64, beats));
     d->post([this, slot, beats, grid] {
         auto& bank = d->seqBanks[(size_t)slot];
@@ -1402,7 +1448,7 @@ void Session::replaceSequencerScene(int slot, int beats, const SeqPattern& grid)
                 dst.velocity = grid[(size_t)t][(size_t)i].velocity;
                 dst.note = grid[(size_t)t][(size_t)i].note;
             }
-        if (slot == d->seqActiveScene) d->activateSequencer(slot);
+        if (slot == d->seqActiveScene) { const double phase = d->seqPhase; d->activateSequencer(slot); d->seqPhase = std::fmod(phase, (double)(d->seqBeats * 4)); }
     });
 }
 void Session::setSequencerBeats(int beats) {
@@ -1574,11 +1620,12 @@ void Session::clipRecord(int t, bool on) {
     if (t < 0 || t >= kTracks) return;
     d->post([this, t, on] {
         auto& tr = *d->tracks[(size_t)t];
+        if (on && d->padEdit >= 0 && !(d->padWritable & (1u << t))) return;
         if (on && !tr.clip.unique())
             tr.clip = std::make_shared<std::vector<float>>(*tr.clip);
         tr.clipRec = on;
         if (on) { ++d->flexTicket; d->a_flexPending = false; }
-        else d->refreshLoopProcessing();
+        else { d->savePadTrack(t); d->refreshLoopProcessing(); }
     });
 }
 void Session::clipClear(int t) {
@@ -1655,7 +1702,7 @@ void Session::setCue(bool on, int division) {
     });
 }
 void Session::captureScene(int slot, uint16_t tracks, int sequencerScene) {
-    if (slot < 0 || slot >= kScenes || sequencerScene < -1 || sequencerScene >= kSeqScenes) return;
+    if (slot < 0 || slot >= kScenes || sequencerScene < -1 || sequencerScene >= kSeqBanks) return;
     d->post([this, slot, tracks, sequencerScene] {
         if ((!tracks && sequencerScene < 0) || d->freeArmed || d->freeRec) return;
         for (const auto& t : d->tracks) if (t->clipRec) return;
@@ -1738,6 +1785,40 @@ void Session::startSong(const std::vector<int>& order) {
         d->retainComposition();
         d->songOrder = std::move(valid); d->songStep = 0; d->songPlaying = true;
         d->activateScene(d->songOrder[0]);
+    });
+}
+void Session::beginPadEdit(int slot, bool audio) {
+    if (slot < 0 || slot >= kScenes) return;
+    d->post([this, slot, audio] {
+        if (!d->scenes[(size_t)slot].filled || d->freeRec || d->freeArmed) return;
+        for (const auto& t : d->tracks) if (t->clipRec) return;
+        d->finishPadEdit();
+        d->retainComposition();
+        const uint16_t occupied = d->occupiedTracks();
+        d->songPlaying = false; d->songStep = -1; d->pendingScene = -1;
+        d->a_queuedScene = -1;
+        if (d->activeScene != slot) d->activateScene(slot);
+        else if (!d->playing || d->stopping) {
+            d->playing = true; d->stopping = false; d->rate = 1.;
+            d->metroClickAge = 0;
+        }
+        d->padEdit = slot;
+        d->padWritable = audio ? (uint16_t)~occupied : 0;
+    });
+}
+void Session::endPadEdit() { d->post([this] { d->finishPadEdit(); }); }
+void Session::attachPadSequencer(int slot, int bank) {
+    if (slot < 0 || slot >= kScenes || bank != kSeqScenes + slot) return;
+    d->post([this, slot, bank] {
+        auto& sc = d->scenes[(size_t)slot];
+        if (!sc.filled) return;
+        sc.seqScene = (uint8_t)(bank + 1);
+        d->updateSceneMask();
+        if (d->activeScene == slot) {
+            const double phase = d->seqPhase;
+            d->seqPerformance = true; d->activateSequencer(bank);
+            d->seqPhase = std::fmod(phase, (double)(d->seqBeats * 4));
+        }
     });
 }
 void Session::beginPerformanceMode() {
@@ -2285,7 +2366,7 @@ bool readTimeline(ProjectRead& r, Session::Impl::ProjectTimeline& t, int sr, int
 }
 bool writeProjectFile(const std::string& dir, int slot, const Session::Impl::ProjectSnapshot& s, int sr) {
     namespace fs = std::filesystem;
-    if (dir.empty() || s.appState.empty() || s.appState.size() > 65536) return false;
+    if (dir.empty() || s.appState.empty() || s.appState.size() > 131072) return false;
     std::error_code ec; fs::create_directories(dir, ec);
     if (ec) return false;
     const auto path = projectPath(dir, slot), tmp = path + ".tmp", backup = path + ".bak";
@@ -2393,7 +2474,7 @@ bool readProjectFile(const std::string& file, Session::Impl::ProjectSnapshot& sn
     uint32_t magic = 0, ver = 0, rate = 0, metaLen = 0;
     if (!r.value(magic) || !r.value(ver) || !r.value(rate) || !r.value(metaLen) ||
         magic != kProjectMagic || (ver != 2 && ver != 3 && ver != 4 && ver != kProjectVersion) ||
-        rate != (uint32_t)sr || metaLen == 0 || metaLen > 65536) return false;
+        rate != (uint32_t)sr || metaLen == 0 || metaLen > 131072) return false;
     snap.appState.resize(metaLen);
     if (!r.get(snap.appState.data(), metaLen)) return false;
     for (int t = 0; t < (ver >= 5 ? Session::kTracks : 8); ++t) {
@@ -2420,7 +2501,7 @@ bool readProjectFile(const std::string& file, Session::Impl::ProjectSnapshot& sn
         uint8_t filled = 0;
         if (!r.value(filled) || filled > 1) return false;
         scene.filled = filled;
-        if (ver >= 4) { if (!r.value(scene.seqScene) || scene.seqScene > Session::kSeqScenes) return false; }
+        if (ver >= 4) { if (!r.value(scene.seqScene) || scene.seqScene > Session::kSeqBanks) return false; }
         if (!filled) continue;
         if (!r.value(scene.samples) || !r.value(scene.bars) || !r.value(scene.tempo) ||
             scene.samples <= 0 || scene.samples > sr * 180 || scene.bars < 1 ||
@@ -2471,7 +2552,7 @@ bool Session::saveProject(int slot, std::vector<uint8_t> meta,
                           const std::array<std::string, kTracks>& paths,
                           const std::array<std::string, kSeqTracks>& seqPaths) {
     if (slot < 0 || slot >= kProjectSlots || d->dataDir.empty() ||
-        meta.empty() || meta.size() > 65536) return false;
+        meta.empty() || meta.size() > 131072) return false;
     int state = d->projectOp.load();
     while (state != 1 && state != 3) {
         if (d->projectOp.compare_exchange_weak(state, 1)) break;

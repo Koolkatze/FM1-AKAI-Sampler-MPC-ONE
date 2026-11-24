@@ -658,7 +658,8 @@ void SamplerUI::deck(Rect r) {
         text(trackTap.x + trackTap.w / 2, trackTap.y + trackTap.h / 2,
              26, kOrange, app_.metronomeSelected() ? "MET" : "T" + std::to_string(t + 1), 1, true);
         tap(trackTap, [this, t] {
-            if (app_.metronomeSelected()) app_.selectTrack(0);
+            if (app_.padEditing()) { for (int n = 1; n <= SamplerApp::kTracks; ++n) { int next = (t + n) % SamplerApp::kTracks; if (app_.padTrackWritable(next)) { app_.selectTrack(next); break; } } }
+            else if (app_.metronomeSelected()) app_.selectTrack(0);
             else if (t + 1 == SamplerApp::kTracks) app_.selectMetronome();
             else app_.selectTrack(t + 1);
         });
@@ -760,6 +761,7 @@ void SamplerUI::deck(Rect r) {
     }
     const float py = 163;
     text(x0, py, 15, kOrange, SamplerApp::pageName(app_.page()), 0, true);
+    if (app_.padEditing()) button({x0 + 105, 138, 132, 23}, "BACK TO PADS", false, [this] { app_.leavePadEditor(); performanceOpen_ = true; projectOpen_ = false; }, 9);
     if (app_.metronomeSelected()) {
         // Use precisely the same 19x28 touch targets and 15x4 page markers
         // as ordinary sample tracks, in the same right-aligned position.
@@ -800,13 +802,16 @@ void SamplerUI::sequencerView() {
     rrect({0, 0, W_, 49}, 0, SURFACE);
     line(0, 49, W_, 49, OUTLINE, 1);
     button({10, 9, 65, 31}, "HOME", false,
-           [this] { app_.exitSequencer(); sheetOpen_ = false; tempoOpen_ = false; }, 10);
+           [this] { app_.goHome(); sheetOpen_ = false; tempoOpen_ = false; }, 10);
     button({82, 9, 73, 31}, st_.playing ? "STOP" : "PLAY", st_.playing,
            [this] { app_.transportPlay(); }, 10, true);
     button({162, 9, 91, 31}, "LIBRARY", false,
            [this] { openLibrary(); }, 10);
     // Tempo/pitch is now exclusively under MET; keep scene switching here.
-    if (W_ >= 760) {
+    if (app_.padSequencerEditing()) {
+        button({260, 9, 122, 31}, "BACK TO PADS", false, [this] { app_.leavePadEditor(); performanceOpen_ = true; projectOpen_ = false; sheetOpen_ = false; }, 10);
+        text(395, 25, 11, ACCENT, "PAD " + SamplerApp::sceneLabel(app_.padEditSlot()), 0, true);
+    } else if (W_ >= 760) {
         button({260, 9, 34, 31}, "<", false,
                [this] { app_.selectSequencerScene(app_.sequencerScene() - 1); }, 12);
         text(355, 25, 11, ACCENT,
@@ -823,7 +828,7 @@ void SamplerUI::sequencerView() {
     const float firstY = 76.f, rowH = std::max(20.f, (H_ - 164.f) / 8.f);
     const int firstStep = app_.sequencerPage() * 16;
     const int limit = app_.sequencerBeats() * 4;
-    text(14, 63, 12, ACCENT, "8 EXTRA TRACKS · SCENE " + std::to_string(app_.sequencerScene() + 1) + "/8", 0, true);
+    text(14, 63, 12, ACCENT, app_.padSequencerEditing() ? "PAD PATTERN · AUTO SAVE" : "8 EXTRA TRACKS · SCENE " + std::to_string(app_.sequencerScene() + 1) + "/8", 0, true);
     text(x0, 63, 10, DIM, "SELECT / BLACK KEYS: TRACK    K1: TIMELINE    K4: SCENE    WHITE: STEPS");
     for (int t = 0; t < SamplerApp::kSeqTracks; ++t) {
         const bool selected = t == app_.sequencerTrack();
@@ -908,7 +913,7 @@ void SamplerUI::trackList(Rect r) {
         rrect(row, R_CARD, sel ? RAISED : SURFACE);
         stroke(row, R_CARD, sel ? ACCENT : OUTLINE, sel ? 2 : 1);
         text(row.x + 14, row.y + rh / 2, T_TITLE, sel ? ACCENT : TEXT, std::to_string(i + 1), 1, true);
-        const std::string lab = app_.sampleLabel(i);
+        const std::string lab = app_.padTrackWritable(i) ? app_.sampleLabel(i) : "IN USE - LOCKED";
         text(row.x + 30, row.y + rh / 2 - 6, 11, lab.empty() ? DIM : TEXT, fit(lab.empty() ? "EMPTY" : lab, cw - 40, 11), 0, true);
         // level and loop mark
         const float lv = std::min(1.f, st_.track_peak[i] * 1.5f);
@@ -1271,20 +1276,21 @@ void SamplerUI::performanceSheet() {
     const float scale = std::max(.7f, H_ / 400.f);
     const auto Y = [scale](float y) { return y * scale; };
     const auto H = [scale](float h) { return h * scale; };
-    const float third = std::min(130.f, (w - 130.f) / 4.f);
+    const float third = std::min(130.f, (w - 200.f) / 4.f);
     button({x, Y(8), 93, H(38)}, "PROJECT", false, [this] {
         performanceOpen_ = false; projectOpen_ = true;
     }, 11);
     button({x + 101, Y(8), third, H(38)}, "COMPOSE",
-           !app_.performanceActive(), [this] { app_.exitPerformanceMode(); }, 11);
+           app_.padEditing(), [this] { if (app_.enterPadEditor(false)) { performanceOpen_ = false; projectOpen_ = false; editor_ = false; } }, 11);
     button({x + 107 + third, Y(8), third, H(38)}, "LOOP MODE",
            app_.performanceActive() && !app_.songMode(),
            [this] { app_.setSongMode(false); }, 11);
     button({x + 113 + 2 * third, Y(8), third, H(38)}, "SONG MODE",
            app_.performanceActive() && app_.songMode(),
            [this] { app_.setSongMode(true); }, 11);
+    button({x + 119 + 3 * third, Y(8), third, H(38)}, "SEQUENCER", false, [this] { if (app_.enterPadEditor(true)) { performanceOpen_ = false; projectOpen_ = false; editor_ = false; } }, 10);
     button({x + w - 80, Y(8), 80, H(38)}, "HOME", false, [this] {
-        app_.exitPerformanceMode();
+        app_.goHome();
         performanceOpen_ = false; projectOpen_ = false; editor_ = false;
     }, 11);
     text(x + 4, Y(62), 11, DIM,
@@ -1309,7 +1315,7 @@ void SamplerUI::performanceSheet() {
         const int seq = st_.sceneSequencers[slot];
         text(r.x + r.w / 2.f, r.y + H(34), 9.5f, DIM,
              queued ? "NEXT" : !saved ? "EMPTY" :
-             (seq ? std::to_string(count) + "L + SC" + std::to_string(seq)
+             (seq ? std::to_string(count) + (seq > SamplerApp::kSeqScenes ? "L + PAD SEQ" : "L + SC" + std::to_string(seq))
                   : std::to_string(count) + " LOOPS"), 1);
         tap(r, [this, slot] { app_.selectScene(slot, false); });
     }
@@ -1328,7 +1334,7 @@ void SamplerUI::performanceSheet() {
                  selected ? ACCENT : DIM, "T" + std::to_string(t + 1), 1, true);
             tap(r, [this, t] { app_.toggleSceneTrack(t); });
         }
-        text(x + 4, Y(285), 12, ACCENT, "SEQUENCER SCENE  /  ONE PATTERN PER PAD", 0, true);
+        text(x + 4, Y(285), 12, ACCENT, app_.loopSequencerScene() >= SamplerApp::kSeqScenes ? "PRIVATE PAD SEQUENCE (AUTO SAVED)" : "SEQUENCER SCENE  /  ONE PATTERN PER PAD", 0, true);
         const float scGap = 6.f, scW = (w - 8.f * scGap) / 9.f;
         for (int i = 0; i < 9; ++i) {
             const int seq = i - 1; // OFF followed by the eight complete SEQ scenes

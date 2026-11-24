@@ -104,7 +104,11 @@ SamplerApp::SamplerApp(Session& s, Send send) : s_(s), send_(std::move(send)) {
 }
 
 void SamplerApp::selectSequencerScene(int slot) {
-    if (slot < 0 || slot >= kSeqScenes || slot == seqScene_) return;
+    if (padEditing() || slot < 0 || slot >= kSeqScenes) return;
+    switchSequencerBank(slot);
+}
+void SamplerApp::switchSequencerBank(int slot) {
+    if (slot < 0 || slot >= Session::kSeqBanks || slot == seqScene_) return;
     // Every scene remembers its entire 8-track grid and its own time signature.
     seqScenes_[(size_t)seqScene_].grid = seqGrid_;
     seqScenes_[(size_t)seqScene_].beats = seqBeats_;
@@ -117,11 +121,13 @@ void SamplerApp::selectSequencerScene(int slot) {
     lastLed_ = ~0ull;
 }
 void SamplerApp::enterSequencer() {
+    if (padEditing()) { leavePadEditor(); enterPadEditor(true); return; }
     sequencerMode_ = true;
     page_ = P_STEP;
     needClear_ = true;
 }
 void SamplerApp::exitSequencer() {
+    if (padEditing()) { leavePadEditor(); return; }
     sequencerMode_ = false;
     page_ = P_HOME;
     needClear_ = true;
@@ -403,6 +409,7 @@ std::string SamplerApp::takePackDeletePath() {
     return path;
 }
 void SamplerApp::loadEntry(int i) {
+    if (padSequencerEditing() || (!sequencerMode_ && !padTrackWritable(track_))) { say("SHARED SAMPLE LOCKED"); return; }
     if (i < 0 || i >= (int)lib_.size()) return;
     libCursor_ = i; auditionAt_ = 0;
     const Entry& e = lib_[(size_t)i];
@@ -433,6 +440,7 @@ void SamplerApp::applyAll(int t) {
 }
 void SamplerApp::applyRoot(int t) { s_.setRoot(t, ts_[t].tuned ? ts_[t].root : 60.f); }
 void SamplerApp::autoTune() {
+    if (!padTrackWritable(track_)) return;
     const int t = track_;
     if (ts_[t].algo > 1) { say("AUTOTUNE: MELODIC OR ONE-SHOT"); return; }
     if (ts_[t].tuned) { ts_[t].tuned = false; applyRoot(t); say("TUNING RESET"); return; }
@@ -481,21 +489,23 @@ void SamplerApp::applyFx() {
     s_.setDelay(0.05f + delayTime_ * 1.45f, delayFb_ * 0.95f);
 }
 void SamplerApp::queueCommit(int t) { commitAt_ = nowMs_ + 350; commitTrack_ = t; }   // the offline stretch / pitch runs once the knob rests
-void SamplerApp::setAlgo(int a) { ts_[track_].algo = ((a % 6) + 6) % 6; applyAlgo(track_); applyHome(track_, true); }
-void SamplerApp::setVolume(int t, float v) { ts_[t].vol = cl(v); applyMix(t); }
-void SamplerApp::setPan01(int t, float v) { ts_[t].pan = cl(v); applyMix(t); }
-void SamplerApp::setSend(int t, int w, float v) { (w ? ts_[t].sendD : ts_[t].sendR) = cl(v); applyMix(t); }
+void SamplerApp::setAlgo(int a) { if (!padTrackWritable(track_)) return; ts_[track_].algo = ((a % 6) + 6) % 6; applyAlgo(track_); applyHome(track_, true); }
+void SamplerApp::setVolume(int t, float v) { if (!padTrackWritable(t)) return; ts_[t].vol = cl(v); applyMix(t); }
+void SamplerApp::setPan01(int t, float v) { if (!padTrackWritable(t)) return; ts_[t].pan = cl(v); applyMix(t); }
+void SamplerApp::setSend(int t, int w, float v) { if (!padTrackWritable(t)) return; (w ? ts_[t].sendD : ts_[t].sendR) = cl(v); applyMix(t); }
 void SamplerApp::setScale(int scale, int root, int octave, int mode) {
     scale_ = {std::min(7, std::max(0, scale)), ((root % 12) + 12) % 12, std::min(3, std::max(-3, octave)), mode & 1};
     sysex(6, {7, (uint8_t)scale_.root, (uint8_t)(scale_.octave + 3), (uint8_t)scale_.mode}, true);
 }
 void SamplerApp::selectMetronome() {
+    if (padEditing()) return;
     if (metroSelected_) return;
     if (st_.track_clip_rec[track_]) s_.clipRecord(track_, false);
     metroSelected_ = true;
     page_ = P_METRO_TEMPO;
 }
 void SamplerApp::selectTrack(int t) {
+    if (padEditing() && !padTrackWritable(t)) { say("TRACK IN USE BY PROJECT"); return; }
     if (t < 0 || t >= kTracks) { selectMetronome(); return; }
     if (t == track_ && !metroSelected_) return;
     metroSelected_ = false;
@@ -531,6 +541,7 @@ SamplerApp::Knob SamplerApp::choice(const char* name, int* v, std::vector<std::s
 SamplerApp::Knobs SamplerApp::knobs() { return knobs(page_); }
 SamplerApp::Knobs SamplerApp::knobs(Page p) {
     Knobs k;
+    if (padCompose_ && (!padTrackWritable(track_) || p == P_LEN || p == P_SEQ || p == P_TEMPO || p == P_METRO_TEMPO || p == P_METRO_SETTINGS || p == P_METRO_CORRECT)) return k;
     TrackState& x = ts_[track_];
     const int t = track_;
     auto sec = [](float s) { return fmt(s < 1 ? "%.2fS" : "%.1fS", s); };
@@ -736,6 +747,7 @@ std::string SamplerApp::sceneLabel(int slot) {
     return slot >= 0 && slot < Session::kScenes ? notes[slot] : "--";
 }
 void SamplerApp::setSongMode(bool song) {
+    if (padEditing()) leavePadEditor();
     if (song == songMode_ && sceneKeys_) return;
     if (recordingNow()) { say("FINISH RECORDING FIRST"); return; }
     if (!sceneKeys_) s_.beginPerformanceMode(); // one COW snapshot for LOOP and SONG
@@ -745,7 +757,62 @@ void SamplerApp::setSongMode(bool song) {
     sceneKeys_ = true;
     say(songMode_ ? "SONG MODE" : "LOOP MODE: C1-B1");
 }
+bool SamplerApp::enterPadEditor(bool sequencer) {
+    if (recordingNow() || mic_ != 0) { say("FINISH RECORDING FIRST"); return false; }
+    if (!sceneSaved(selectedScene_)) { say("SAVE THIS PAD FIRST"); return false; }
+    if (padEditing()) leavePadEditor();
+    const auto status = s_.status();
+    uint16_t used = status.compositionTracks;
+    for (int t = 0; t < kTracks; ++t) if (status.track_has_clip[t]) used |= (uint16_t)(1u << t);
+    for (int i = 0; i < Session::kScenes; ++i) used |= status.sceneTracks[i];
+    padWritable_ = (uint16_t)~used;
+    if (!sequencer && !padWritable_) { say("NO FREE PROJECT TRACKS"); return false; }
+    if (!sceneKeys_) s_.beginPerformanceMode();
+    songMode_ = false; sceneKeys_ = true;
+    padEditSlot_ = selectedScene_; padCompose_ = !sequencer;
+    metroSelected_ = false; sequencerMode_ = sequencer;
+    s_.beginPadEdit(padEditSlot_, !sequencer);
+    if (sequencer) {
+        globalSeqScene_ = seqScene_;
+        const int bank = kSeqScenes + padEditSlot_;
+        const int source = (int)status.sceneSequencers[padEditSlot_] - 1;
+        if (source != bank) {
+            seqScenes_[(size_t)bank] = source >= 0 ? seqScenes_[(size_t)source] : SequencerScene{};
+            Session::SeqPattern pattern{};
+            for (int t = 0; t < kSeqTracks; ++t) for (int i = 0; i < kSeqSteps; ++i) {
+                const auto hit = seqScenes_[(size_t)bank].grid[(size_t)t][(size_t)i];
+                pattern[(size_t)t][(size_t)i] = {hit.velocity, hit.note};
+            }
+            s_.replaceSequencerScene(bank, seqScenes_[(size_t)bank].beats, pattern);
+        }
+        switchSequencerBank(bank);
+        s_.attachPadSequencer(padEditSlot_, bank);
+        loopSeqScene_ = bank;
+        page_ = P_STEP;
+    } else {
+        page_ = P_HOME;
+        for (int t = 0; t < kTracks; ++t) if (padTrackWritable(t)) { selectTrack(t); break; }
+    }
+    say("EDIT PAD " + sceneLabel(padEditSlot_) + " / AUTO SAVE");
+    needClear_ = true;
+    return true;
+}
+void SamplerApp::leavePadEditor() {
+    if (!padEditing()) return;
+    if (recordingNow()) endRecording();
+    s_.endPadEdit();
+    if (!padCompose_) switchSequencerBank(globalSeqScene_);
+    padEditSlot_ = -1; padCompose_ = false; padWritable_ = 0;
+    sequencerMode_ = false; page_ = P_HOME; needClear_ = true;
+}
+void SamplerApp::goHome() {
+    leavePadEditor();
+    if (sequencerMode_) exitSequencer();
+    if (metroSelected_) selectTrack(track_);
+    exitPerformanceMode(); page_ = P_HOME; ++homeNavigationSerial_;
+}
 void SamplerApp::exitPerformanceMode() {
+    leavePadEditor();
     // The old code only cancelled playback; scene activation had already
     // replaced all 8 clip pointers. Restore the edit workspace instead.
     if (sceneKeys_) s_.restoreComposition();
@@ -757,6 +824,7 @@ void SamplerApp::exitPerformanceMode() {
     say("COMPOSITION MODE");
 }
 void SamplerApp::selectScene(int slot, bool trigger) {
+    if (padEditing()) return;
     if (slot < 0 || slot >= Session::kScenes) return;
     selectedScene_ = slot;
     sceneTracks_ = sceneSaved(slot) ? st_.sceneTracks[slot] : 0xffff;
@@ -848,7 +916,7 @@ namespace {
 struct FullProjectSettings {
     uint32_t magic = 0x32505041;  // APP2
     // v4 adds independent sequencer and tempo fields without changing the v2/v3 prefix.
-    uint32_t version = 7, bytes = sizeof(FullProjectSettings);
+    uint32_t version = 8, bytes = sizeof(FullProjectSettings);
     std::array<SamplerApp::TrackState, 8> tracks{};
     SamplerApp::ScaleState scale{};
     float reverbSize = .7f, reverbWet = .35f, delayTime = .4f, delayFeedback = .45f;
@@ -882,6 +950,8 @@ struct FullProjectSettings {
     float metronomeSwing = 0.f, metronomeVolume = .7f;
     // v7: appended grid calibration, previous project layouts unchanged.
     float tempoCorrection = 1.f;
+    std::array<std::array<std::array<uint8_t, SamplerApp::kSeqSteps>, SamplerApp::kSeqTracks>, Session::kScenes> padVelocity{}, padNote{};
+    std::array<uint8_t, Session::kScenes> padBeats{};
 };
 static_assert(std::is_trivially_copyable_v<FullProjectSettings>);
 }
@@ -929,7 +999,16 @@ bool SamplerApp::saveFullProject(int slot) {
     m.sceneTrackMask = (uint8_t)(sceneTracks_ & 0xff); m.performance = sceneKeys_; m.songMode = songMode_;
     m.songSize = (uint32_t)std::min<size_t>(64, songOrder_.size());
     m.seqTrack = seqTrack_; m.seqPage = seqPage_; m.seqBeats = seqBeats_;
-    m.selectedSeqScene = seqScene_;
+    m.selectedSeqScene = padSequencerEditing() ? globalSeqScene_ : seqScene_;
+    for (int p = 0; p < Session::kScenes; ++p) {
+        const auto& bank = seqScenes_[(size_t)(kSeqScenes + p)];
+        m.padBeats[(size_t)p] = (uint8_t)bank.beats;
+        for (int t = 0; t < kSeqTracks; ++t) for (int i = 0; i < kSeqSteps; ++i) {
+            const auto hit = bank.grid[(size_t)t][(size_t)i];
+            m.padVelocity[(size_t)p][(size_t)t][(size_t)i] = hit.velocity;
+            m.padNote[(size_t)p][(size_t)t][(size_t)i] = hit.note;
+        }
+    }
     m.selectedLoopSeqScene = loopSeqScene_;
     for (int scene = 0; scene < kSeqScenes; ++scene) {
         // The active scene is edited live in seqGrid_/seqBeats_ and may not
@@ -947,7 +1026,7 @@ bool SamplerApp::saveFullProject(int slot) {
                 m.seqScenesNote[(size_t)scene][(size_t)t][(size_t)step] = hit.note;
             }
     }
-    m.seqEditedStep = seqEditStep_; m.sequencerMode = sequencerMode_;
+    m.seqEditedStep = seqEditStep_; m.sequencerMode = sequencerMode_ && !padEditing();
     m.sequencerEnabled = 1;
     m.tempoBpm = tempoFlexBpm_; m.pitchedTempo = pitchedTempo_;
     m.tempoCorrection = tempoCorrection_;
@@ -1006,7 +1085,8 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
     const bool oldProject = project.appState.size() == legacySize;
     const bool v4Project = project.appState.size() == offsetof(FullProjectSettings, seqScenesVelocity);
     const bool v5Project = project.appState.size() == offsetof(FullProjectSettings, extraTracks);
-    const bool v7Project = project.appState.size() == sizeof(FullProjectSettings);
+    const bool v8Project = project.appState.size() == sizeof(FullProjectSettings);
+    const bool v7Project = v8Project || project.appState.size() == offsetof(FullProjectSettings, padVelocity);
     const bool v6Project = v7Project || project.appState.size() == offsetof(FullProjectSettings, tempoCorrection);
     if (!oldProject && !v4Project && !v5Project && !v6Project) {
         say("PROJECT SETTINGS INCOMPATIBLE"); return;
@@ -1014,7 +1094,7 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
     FullProjectSettings m{};
     std::memcpy(&m, project.appState.data(), project.appState.size());
     if (m.magic != 0x32505041 ||
-        (oldProject ? (m.version != 2 && m.version != 3) : v4Project ? m.version != 4 : v5Project ? m.version != 5 : v7Project ? m.version != 7 : m.version != 6) ||
+        (oldProject ? (m.version != 2 && m.version != 3) : v4Project ? m.version != 4 : v5Project ? m.version != 5 : v8Project ? m.version != 8 : v7Project ? m.version != 7 : m.version != 6) ||
         m.bytes != project.appState.size() || m.songSize > 64 ||
         m.selectedTrack < 0 || m.selectedTrack >= kTracks ||
         m.page < 0 || m.page >= kPages || m.selectedScene < 0 ||
@@ -1029,6 +1109,7 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
     std::copy_n(m.tracks.begin(), 8, ts_.begin());
     if (v6Project) std::copy_n(m.extraTracks.begin(), 8, ts_.begin() + 8);
     else for (int i = 8; i < kTracks; ++i) { ts_[(size_t)i] = TrackState{}; ts_[(size_t)i].vol = .8f; }
+    padEditSlot_ = -1; padCompose_ = false; padWritable_ = 0;
     metroSelected_ = v6Project && m.metronomeSelected != 0;
     metroBeats_ = v6Project ? std::clamp((int)m.metronomeBeats, 1, 64) : 4;
     metroSwing_ = v6Project && std::isfinite(m.metronomeSwing) ? cl(m.metronomeSwing) : 0.f;
@@ -1046,7 +1127,7 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
     track_ = m.selectedTrack; page_ = (Page)m.page;
     selectedScene_ = m.selectedScene; songSelected_ = m.selectedSongStep;
     sceneTracks_ = v6Project ? m.sceneTrackMask16 : (uint16_t)m.sceneTrackMask;
-    loopSeqScene_ = v4Project || oldProject ? -1 : std::max(-1, std::min(kSeqScenes - 1, (int)m.selectedLoopSeqScene));
+    loopSeqScene_ = v4Project || oldProject ? -1 : std::max(-1, std::min(Session::kSeqBanks - 1, (int)m.selectedLoopSeqScene));
     cueDivision_ = m.version == 2 ? m.cueDivision * 2 : m.cueDivision;
     // v2 saved 0..5 as straight divisions. v3 interleaves T values,
     // keeping the original rhythmic choice without losing old projects.
@@ -1118,6 +1199,19 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
                 s_.setSequencerStep(t, i, 0, 60);
             }
     }
+    for (int p = 0; p < Session::kScenes; ++p) {
+        auto& bank = seqScenes_[(size_t)(kSeqScenes + p)];
+        bank = SequencerScene{};
+        bank.beats = v8Project ? std::clamp((int)m.padBeats[(size_t)p], 1, 64) : 4;
+        Session::SeqPattern pattern{};
+        for (int t = 0; t < kSeqTracks; ++t) for (int i = 0; i < kSeqSteps; ++i) {
+            auto& hit = bank.grid[(size_t)t][(size_t)i];
+            hit = {v8Project ? m.padVelocity[(size_t)p][(size_t)t][(size_t)i] : (uint8_t)0, v8Project ? m.padNote[(size_t)p][(size_t)t][(size_t)i] : (uint8_t)60};
+            pattern[(size_t)t][(size_t)i] = {hit.velocity, hit.note};
+        }
+        s_.replaceSequencerScene(kSeqScenes + p, bank.beats, pattern);
+    }
+    if (page_ == P_STEP && !sequencerMode_) page_ = P_HOME;
     songOrder_.clear();
     for (uint32_t i = 0; i < m.songSize; ++i) songOrder_.push_back(m.songOrder[i]);
     scenesLoaded_ = true;
@@ -1167,7 +1261,7 @@ void SamplerApp::transportPlay() {   // normal transport: modifiers only work th
 void SamplerApp::transportSet(bool play) {
     // The mobile screen has ordinary transport controls only. OCT combinations
     // are decoded solely from physical/external MIDI button note events.
-    if (recordingNow()) { if (!play) endRecording(); return; }
+    if (recordingNow()) { if (!play) { endRecording(); s_.play(false); } return; }
     if (songMode_) { if (play) playSong(); else stopSong(); return; }
     s_.play(play);
 }
@@ -1200,10 +1294,10 @@ void SamplerApp::cueHold(bool down) {
     }
 }
 void SamplerApp::loopRecord() {
-    if (metroSelected_) { say("SELECT A LOOP TRACK TO RECORD"); return; }
+    if (metroSelected_ || !padTrackWritable(track_)) { say("SELECT A FREE LOOP TRACK TO RECORD"); return; }
     if (st_.songPlaying) { say("STOP SONG BEFORE RECORDING"); return; }
     if (st_.freeArmed || st_.freeRecording) { s_.freeRecord(track_, false); say("LOOP SET"); return; }
-    if (!loopAny_ && !st_.track_clip_rec[track_]) {   // a clean looper: arm the first take, it starts with the first note (or sound) and sets the loop length
+    if (!padEditing() && !loopAny_ && !st_.track_clip_rec[track_]) {   // a clean looper: arm the first take, it starts with the first note (or sound) and sets the loop length
         s_.freeRecord(track_, true);
         say(loopSrc_ ? "PLAY A KEY TO START" : "WAITING FOR SOUND");
         return;
@@ -1212,7 +1306,7 @@ void SamplerApp::loopRecord() {
     s_.clipRecord(track_, !st_.track_clip_rec[track_]);
     say(st_.track_clip_rec[track_] ? "OVERDUB OFF" : "OVERDUB");
 }
-void SamplerApp::lenAction(bool dbl) {   // loop x2 (the content repeats) or /2; guarded so a dragged slider does not double it again and again
+void SamplerApp::lenAction(bool dbl) { if (padEditing()) { say("PAD LENGTH LOCKED"); return; }   // loop x2 (the content repeats) or /2; guarded so a dragged slider does not double it again and again
     if (st_.loopSamples <= 0 || nowMs_ - lenAt_ < 300) return;
     lenAt_ = nowMs_ ? nowMs_ : 1;
     if (dbl) { s_.loopDouble(); say("LOOP DOUBLED"); } else { s_.loopHalve(); say("LOOP HALVED"); }
@@ -1229,16 +1323,17 @@ void SamplerApp::loopSave(const std::string& name) {
     commitTrack_ = -2;
 }
 void SamplerApp::loopClearTrack() {
+    if (padEditing()) { say("EXIT PAD EDIT TO CLEAR LOOPS"); return; }
     if (metroSelected_) { say("METRONOME HAS NO AUDIO CLIP"); return; }
     if (!st_.track_has_clip[track_]) { say("NO LOOP ON THIS TRACK"); return; }
     s_.clipClear(track_);
     say("LOOP OF TRACK " + std::to_string(track_ + 1) + " CLEARED");
 }
-void SamplerApp::loopClear() {   // PROJECT menu: every loop of every track, so the looper is clean again
+void SamplerApp::loopClear() { if (padEditing()) { say("EXIT PAD EDIT TO CLEAR LOOPS"); return; }   // PROJECT menu: every loop of every track, so the looper is clean again
     s_.clipClearAll();
     say("ALL LOOPS CLEARED");
 }
-void SamplerApp::micSample() {
+void SamplerApp::micSample() { if (!padTrackWritable(track_)) return;
     if (metroSelected_) { say("SELECT AN AUDIO TRACK FIRST"); return; }
     if (mic_ == 0) {
         s_.recorderWait(true); s_.recorderStart();
@@ -1272,7 +1367,7 @@ void SamplerApp::keyEvent(int raw, bool down) {   // MIDI scene bank in LOOP mod
         return;
     }
     if (metroSelected_ && down) return; // no note triggers on the click-only track
-    if (sceneKeys_ && !songMode_) {
+    if (sceneKeys_ && !songMode_ && !padEditing()) {
         // Ableton labels MIDI 36..47 as C1..B1. Also accept scientific C1
         // (24..35), while the physical FM-1 first 12 keys arrive as 53..64.
         const int slot = raw >= 36 && raw <= 47 ? raw - 36 :
@@ -1298,7 +1393,7 @@ void SamplerApp::keyEvent(int raw, bool down) {   // MIDI scene bank in LOOP mod
 }
 void SamplerApp::playNote(int note, bool down) {
     if (note < 0 || note > 127) return;
-    if (down) { heldNote_[note] = track_; s_.noteOn(track_, note, 100); }
+    if (down) { if (!padTrackWritable(track_)) return; heldNote_[note] = track_; s_.noteOn(track_, note, 100); }
     else if (heldNote_[note] >= 0) { s_.noteOff(heldNote_[note], note); heldNote_[note] = -1; }
 }
 std::vector<float> SamplerApp::peaks(int t, int bins) {
@@ -1454,7 +1549,7 @@ void SamplerApp::button(int b, bool down) {
     if (!down) return;
     if (metroSelected_ && b != HOME && b != SEL) return;
     switch (b) {
-    case HOME: if (sequencerMode_) exitSequencer(); else { if (metroSelected_) selectTrack(track_); exitPerformanceMode(); page_ = P_HOME; } ++homeNavigationSerial_; break;
+    case HOME: goHome(); break;
     case FX: page_ = P_FX; break;
     case ENV: page_ = P_ENV; break;
     case LFO: page_ = P_LFO; break;
@@ -1471,6 +1566,7 @@ void SamplerApp::encoder(int i, int delta) {
     if (!delta) return;
     if (i == 0) {
         if (sequencerMode_) selectSequencerTrack(seqTrack_ + (delta > 0 ? 1 : -1));
+        else if (padCompose_) { for (int n = 1; n <= kTracks; ++n) { const int t = (track_ + (delta > 0 ? n : -n) + kTracks) % kTracks; if (padTrackWritable(t)) { selectTrack(t); break; } } }
         else if (metroSelected_) selectTrack(delta > 0 ? 0 : kTracks - 1);
         else if ((delta > 0 && track_ == kTracks - 1) || (delta < 0 && track_ == 0)) selectMetronome();
         else selectTrack(track_ + (delta > 0 ? 1 : -1));
@@ -1516,7 +1612,7 @@ void SamplerApp::tick(uint32_t now) {
                    (uint8_t)std::clamp(st_.metroBeats, 1, 64),
                    (uint8_t)std::clamp((int)std::lround(st_.metroSwing * 100), 0, 100),
                    (uint8_t)std::clamp((int)std::lround(st_.metroVolume * 100), 0, 100),
-                   (uint8_t)std::clamp(st_.metroMode, 0, 5),
+                   (uint8_t)((!st_.playing && !st_.metroRecording) ? 5 : std::clamp(st_.metroMode, 0, 5)),
                    (uint8_t)beat, (uint8_t)(frac >> 7), (uint8_t)(frac & 127),
                    (uint8_t)(st_.metroRecording ? 1 : 0)}, true, 1100);
     }

@@ -141,6 +141,10 @@ public:
     void launchScene(int slot);            // quantized to the next bar
     void startSong(const std::vector<int>& order);
     void stopSong();
+    static constexpr int kSeqBanks = kSeqScenes + kScenes;
+    void beginPadEdit(int slot, bool audio);
+    void endPadEdit();
+    void attachPadSequencer(int slot, int bank);
     void beginPerformanceMode(); // snapshot current sixteen-track composition on audio thread
     void restoreComposition();   // EXIT / COMPOSE / HOME restore audio clips and transport
     void cancelSceneLaunch();  // leave LOOP mode without stopping currently audible loops

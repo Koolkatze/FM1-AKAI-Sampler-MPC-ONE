@@ -1515,7 +1515,8 @@ int main() {
     {   // Click never leaks into monitored phone mix or user loop buffers.
         Session metro(SAMPLERATE);
         std::array<float, 512> pcm{};
-        metro.setMetronome(7, .25f, .8f, 0); // always-on main mix
+        metro.setMetronome(7, .25f, .8f, 0); // transport-gated main mix
+        metro.play(true);
         metro.process(pcm.data(), nullptr, 256);
         float audible = 0.f;
         for (float x : pcm) audible = std::max(audible, std::fabs(x));
@@ -1529,6 +1530,11 @@ int main() {
         CHECK(metro.status().metroBeats == 7 &&
               metro.status().metroPhase > 0.f,
               "independent metronome phase advances with the 7/4 audio clock");
+        metro.setMetronome(7, .25f, .8f, 0);
+        metro.play(false); metro.process(pcm.data(), nullptr, 256);
+        metro.process(pcm.data(), nullptr, 256);
+        float stopped = 0.f; for (float x : pcm) stopped = std::max(stopped, std::fabs(x));
+        CHECK(stopped < .000001f, "STOP gates the metronome immediately");
     }
     printf("%s (%d failures)\n", fails ? "FAILED" : "ALL OK", fails);
     return fails ? 1 : 0;

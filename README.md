@@ -13,6 +13,14 @@ Sampler, editor de audio y **looper de 16 pistas** para Android. El teléfono ej
 
 Las compilaciones debug de GitHub usan **`com.ferluht.fm1sampler.scenes`**; la variante original usa **`com.ferluht.fm1sampler`**. Son instalaciones con datos privados separados. Las firmas de debug de diferentes ejecuciones pueden no coincidir: **no desinstales una app con proyectos/loops sin haber exportado y verificado una copia de seguridad externa**.
 
+## Edición de pads en directo (nueva actualización)
+
+1. En **PROJECT → LOOP / SONG MODE**, selecciona un pad guardado. **COMPOSE** abre el deck y mantiene ese pad sonando; si otro pad estaba activo, inicia el seleccionado. SELECT y el selector de pista saltan a pistas libres de todo el proyecto. Las pistas usadas en COMPOSE u otros pads quedan bloqueadas aunque no suenen. Graba con REC y termina la toma con REC/STOP: el clip se añade automáticamente al pad. BACK TO PADS vuelve a la pantalla LOOP sin restaurar la composición.
+2. **SEQUENCER** abre el patrón del pad en reproducción. La primera edición usa una copia privada de la escena vinculada (o un patrón vacío si estaba OFF). Los pasos, notas y compás se guardan directamente en esa copia; no se modifican los otros pads ni las ocho escenas compartidas. Los instrumentos del secuenciador son compartidos y se bloquea su sustitución durante la edición de pad. BACK TO PADS conserva el pad activo.
+3. **HOME** (físico o táctil) sale del editor, restaura las pistas de COMPOSE y su secuenciador. Las nuevas pistas se incorporan también a COMPOSE cuando comparten longitud y tempo de origen; si no, permanecen en su pad para evitar alterar audio. Al editar un pad desde SONG se congela el arreglo y se repite el pad seleccionado.
+4. **MET:** PLAY/REC sigue el transporte; STOP silencia el clic. REC/REC MON son de grabación; OFF permanece mudo. CORRECT TEMPO calibra la referencia musical sin cambiar el audio ni el pitch: K1 corrige BPM y TAP TEMPO estima el tempo de las pulsaciones. El cambio de tempo y los patrones de pad se guardan con el proyecto.
+5. El auto guardado actualiza el pad en memoria; **SAVE PROJECT** conserva el trabajo en el archivo `.fm1p`, y **SAVE BACKUP** crea una copia externa. No se crea un proyecto global al salir. Los efectos globales y fuentes comunes siguen siendo parámetros del proyecto, no una copia independiente por pad. Durante la edición se bloquean los cambios de longitud, borrado global y los controles globales de tempo/cinta.
+
 ## Novedades 0.41: PROJECT, LOOP y SONG a pantalla completa
 
 - En HOME, toca el **último icono central PROJECT**. En el menú se muestran botones grandes **SAVE PROJECT**, **LOAD PROJECT**, **EXPORT ALL LOOPS** y **LOOP / SONG MODE**.
@@ -28,12 +36,13 @@ Las compilaciones debug de GitHub usan **`com.ferluht.fm1sampler.scenes`**; la v
 
 **Primeros pasos:** el **icono de SEQUENCER** está en la columna central junto a tema, micrófono, biblioteca y proyectos, y el último icono (PROJECT) queda alineado horizontalmente con PLAY/STOP/REC, sin invadir la línea temporal inferior. El BPM se muestra en el lado izquierdo del dibujo de la cinta, no junto a los knobs. En **HOME / COMPOSE**, selecciona una de las pistas **T1–T16**; después de T16 aparece **MET**, que es un controlador independiente y no guarda audio. La vista de pistas tiene dos columnas de ocho. El secuenciador mantiene sus **ocho pistas propias** y sus **ocho escenas**.
 
-**Control de MET:** abre MET con el selector de pista o el SELECT físico; pulsa **SEL** para cambiar entre sus dos páginas. En el móvil, usa **los mismos pequeños indicadores de página de las pistas normales**, a la derecha del nombre de página; los botones grandes TEMPO / PITCH y METER / CLICK ya no aparecen:
+**Control de MET:** abre MET con el selector de pista o el SELECT físico; pulsa **SEL** para cambiar entre sus tres páginas. En el móvil, usa **los mismos pequeños indicadores de página de las pistas normales**, a la derecha del nombre de página; los botones grandes TEMPO / PITCH y METER / CLICK ya no aparecen:
 
 | Página | K1 | K2 | K3 | K4 |
 |---|---|---|---|---|
 | **TEMPO / PITCH** | Tempo Flex, BPM | Pitch Bend, semitonos | Pitch Bend, cents | Pitched Tempo |
 | **METER / CLICK** | Compás 1/4–64/4 | Swing, 0–100 % | Volumen del clic, 0–100 % | Modo de clic |
+| **CORRECT TEMPO** | BPM 30–300, 0,1 BPM | TAP TEMPO (botón grande) | TAP TEMPO | — |
 
 Los modos son **PLAY/REC** (clic durante PLAY y REC), **REC** (solo grabación), **OFF**, **PLAY/REC MON**, **REC MON** y **OFF MON**. Los modos *MON* requieren firmware específico en el FM-1: la mezcla principal se reproduce en el móvil y el clic de monitor va **solo al minijack del FM-1**. La salida y sincronía exactas **no están aún comprobadas en hardware real**. La APK por sí sola no modifica el firmware del FM-1.
 
