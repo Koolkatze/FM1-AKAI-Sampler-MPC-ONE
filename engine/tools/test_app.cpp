@@ -143,6 +143,72 @@ int main() {
         CHECK(!app.sequencerMode() && app.page() == SamplerApp::P_HOME,
               "HOME exits SEQUENCER without changing looper tracks");
     }
+    // The user-facing HOME controls stay minimal in Light and Dark mode:
+    // the step-grid icon shares the central tools column, no persistent
+    // tempo button appears on sample tracks, and MET reuses small page tabs.
+    {
+        SamplerUI ui(app);
+        ui.setSize(860.f, 400.f, 0.f, 0.f);
+        app.selectTrack(0);
+        for (bool light : {true, false}) {
+            theme::apply(light);
+            ui.frame(now + (light ? 10 : 11));
+            bool seqIconLabel = false, libraryIconLabel = false;
+            bool obsoleteButton = false;
+            for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
+                seqIconLabel |= op.text == "SEQ" &&
+                    std::fabs(op.f[0] - 351.f) < 1.f && op.f[1] < 160.f;
+                libraryIconLabel |= op.text == "LIBRARY" &&
+                    std::fabs(op.f[0] - 351.f) < 1.f && op.f[1] < 220.f;
+                obsoleteButton |= op.text == "TEMPO / PITCH" ||
+                    op.text == "SEQUENCER";
+            }
+            CHECK(seqIconLabel && libraryIconLabel && !obsoleteButton,
+                  "%s HOME has central sequencer icon without large SEQ or TEMPO buttons",
+                  light ? "LIGHT" : "DARK");
+            // The last tool's touch area ends at y262; the lower sample
+            // timeline starts y288, so the unused gap must stay inactive.
+            ui.touch(0, 351.f, 277.f, now + 12);
+            ui.touch(2, 351.f, 277.f, now + 12);
+            CHECK(!app.sequencerMode(),
+                  "%s central toolbar does not overlap bottom timeline",
+                  light ? "LIGHT" : "DARK");
+            ui.touch(0, 351.f, 130.f, now + 13);
+            ui.touch(2, 351.f, 130.f, now + 13);
+            CHECK(app.sequencerMode(),
+                  "%s central step-grid icon opens sequencer",
+                  light ? "LIGHT" : "DARK");
+            app.exitSequencer();
+
+            app.selectMetronome();
+            ui.frame(now + 14);
+            bool bigTempoButton = false, metroVisible = false;
+            for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
+                bigTempoButton |= op.text == "TEMPO / PITCH" ||
+                    op.text == "METER / CLICK";
+                metroVisible |= op.text == "METRONOME";
+            }
+            CHECK(metroVisible && !bigTempoButton &&
+                  app.page() == SamplerApp::P_METRO_TEMPO,
+                  "%s MET displays only native small page selectors",
+                  light ? "LIGHT" : "DARK");
+            // Standard page markers are 19x28 touch zones, right-aligned
+            // at x798 and x817 (W=860, 24px right margin).
+            ui.touch(0, 826.f, 163.f, now + 15);
+            ui.touch(2, 826.f, 163.f, now + 15);
+            CHECK(app.page() == SamplerApp::P_METRO_SETTINGS,
+                  "%s second tiny MET selector opens METER/CLICK",
+                  light ? "LIGHT" : "DARK");
+            ui.frame(now + 16);
+            ui.touch(0, 806.f, 163.f, now + 17);
+            ui.touch(2, 806.f, 163.f, now + 17);
+            CHECK(app.page() == SamplerApp::P_METRO_TEMPO,
+                  "%s first tiny MET selector returns to TEMPO/PITCH",
+                  light ? "LIGHT" : "DARK");
+            app.selectTrack(0);
+        }
+        theme::apply(true);
+    }
     // Empty SONG must not cause a file picker, or publish any audio at all.
     app.requestSongExport();
     CHECK(!app.wantSongExport() && app.toast() == "NO SCENES IN SONG",
