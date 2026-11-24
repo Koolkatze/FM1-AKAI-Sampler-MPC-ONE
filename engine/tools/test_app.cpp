@@ -1512,6 +1512,41 @@ int main() {
               "a long gap starts a new tap series without changing BPM");
         app.setCorrectTempoBpm(original); run(.1);
     }
+    {   // Live pad edits must never make an occupied track available.
+        Session pad(sr);
+        std::array<float, 512> audio{}, mic{};
+        mic.fill(.35f);
+        auto pump = [&](int blocks) { for (int i = 0; i < blocks; ++i) pad.process(audio.data(), mic.data(), 256); };
+        pad.setLoopSource(0);
+        pad.freeRecord(0, true); pump(180);
+        pad.freeRecord(0, false); pump(2);
+        pad.captureScene(0, 1, 0); pump(2);
+        pad.clipRecord(1, true); pump(20); pad.clipRecord(1, false); pump(2);
+        pad.captureScene(1, 2, 0); pump(2);
+        pad.beginPadEdit(0, true); pump(2);
+        CHECK(pad.status().activeScene == 0 && pad.status().playing &&
+              pad.status().track_has_clip[0] && !pad.status().track_has_clip[1],
+              "COMPOSE edit keeps selected pad playing, not the original composition");
+        pad.clipRecord(1, true); pump(3);
+        CHECK(!pad.status().track_clip_rec[1], "track used in another pad cannot be recorded");
+        pad.clipRecord(2, true); pump(25); pad.clipRecord(2, false); pump(2);
+        CHECK(pad.status().sceneTracks[0] == 5 && pad.status().sceneTracks[1] == 2,
+              "free recording autosaves only to the selected pad");
+        pad.endPadEdit(); pump(2);
+        pad.beginPadEdit(0, false); pump(2);
+        Session::SeqPattern pattern{};
+        pattern[0][0] = {100, 60};
+        pad.replaceSequencerScene(Session::kSeqScenes, 7, pattern);
+        pad.attachPadSequencer(0, Session::kSeqScenes); pump(2);
+        CHECK(pad.status().sceneSequencers[0] == Session::kSeqScenes + 1 &&
+              pad.status().sceneSequencers[1] == 1 &&
+              pad.status().seqBeats == 7 && pad.status().playing,
+              "private sequencer bank changes only the edited pad while playback continues");
+        pad.restoreComposition(); pump(2);
+        CHECK(pad.status().activeScene == -1 && pad.status().track_has_clip[0] &&
+              pad.status().track_has_clip[1] && pad.status().track_has_clip[2],
+              "HOME restores the full composition including new compatible audio tracks");
+    }
     {   // Click never leaks into monitored phone mix or user loop buffers.
         Session metro(SAMPLERATE);
         std::array<float, 512> pcm{};

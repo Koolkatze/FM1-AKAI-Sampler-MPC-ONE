@@ -121,7 +121,7 @@ void SamplerApp::switchSequencerBank(int slot) {
     lastLed_ = ~0ull;
 }
 void SamplerApp::enterSequencer() {
-    if (padEditing()) { leavePadEditor(); enterPadEditor(true); return; }
+    if (padEditing()) { if (!padSequencerEditing()) enterPadEditor(true); return; }
     sequencerMode_ = true;
     page_ = P_STEP;
     needClear_ = true;
@@ -723,7 +723,7 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
                     (seqBeats_ - 1) / 63.f,
                     [this](int d) { setSequencerBeats(seqBeats_ + (d > 0 ? 1 : -1)); },
                     [this](float v) { setSequencerBeats(1 + (int)std::lround(cl(v) * 63)); });
-        k[3] = make("SEQ SCENE", std::to_string(seqScene_ + 1) + "/8", seqScene_ / 7.f,
+        if (!padSequencerEditing()) k[3] = make("SEQ SCENE", std::to_string(seqScene_ + 1) + "/8", seqScene_ / 7.f,
                     [this](int d) { selectSequencerScene(seqScene_ + (d > 0 ? 1 : -1)); },
                     [this](float v) { selectSequencerScene((int)std::lround(cl(v) * 7)); });
         break;
@@ -737,6 +737,7 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
         break;
     default: break;
     }
+    if (padCompose_ && p == P_FX) { k[1] = Knob{}; k[3] = Knob{}; }
     return k;
 }
 
@@ -800,6 +801,7 @@ bool SamplerApp::enterPadEditor(bool sequencer) {
 void SamplerApp::leavePadEditor() {
     if (!padEditing()) return;
     if (recordingNow()) endRecording();
+    if (padCompose_) for (int t = 0; t < kTracks; ++t) if (padTrackWritable(t) && st_.track_has_clip[t]) sceneTracks_ |= (uint16_t)(1u << t);
     s_.endPadEdit();
     if (!padCompose_) switchSequencerBank(globalSeqScene_);
     padEditSlot_ = -1; padCompose_ = false; padWritable_ = 0;
@@ -1612,7 +1614,7 @@ void SamplerApp::tick(uint32_t now) {
                    (uint8_t)std::clamp(st_.metroBeats, 1, 64),
                    (uint8_t)std::clamp((int)std::lround(st_.metroSwing * 100), 0, 100),
                    (uint8_t)std::clamp((int)std::lround(st_.metroVolume * 100), 0, 100),
-                   (uint8_t)((!st_.playing && !st_.metroRecording) ? 5 : std::clamp(st_.metroMode, 0, 5)),
+                   (uint8_t)(!st_.playing ? 5 : std::clamp(st_.metroMode, 0, 5)),
                    (uint8_t)beat, (uint8_t)(frac >> 7), (uint8_t)(frac & 127),
                    (uint8_t)(st_.metroRecording ? 1 : 0)}, true, 1100);
     }

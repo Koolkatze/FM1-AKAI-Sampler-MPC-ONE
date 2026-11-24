@@ -2,7 +2,7 @@ plugins { id 'com.android.application' }
 android {
     namespace 'com.ferluht.fm1sampler'
     compileSdk 34
-    defaultConfig { applicationId 'com.ferluht.fm1sampler'; minSdk 23; targetSdk 30; versionCode 65; versionName "0.41.0" }
+    defaultConfig { applicationId 'com.ferluht.fm1sampler'; minSdk 23; targetSdk 30; versionCode 66; versionName "0.42.0" }
     // GitHub previews must reuse one private signing identity forever.
     // Local developers without the environment variables keep an ordinary
     // debug APK; the publish workflow refuses to release such an APK.

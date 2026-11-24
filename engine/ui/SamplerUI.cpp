@@ -761,7 +761,10 @@ void SamplerUI::deck(Rect r) {
     }
     const float py = 163;
     text(x0, py, 15, kOrange, SamplerApp::pageName(app_.page()), 0, true);
-    if (app_.padEditing()) button({x0 + 105, 138, 132, 23}, "BACK TO PADS", false, [this] { app_.leavePadEditor(); performanceOpen_ = true; projectOpen_ = false; }, 9);
+    if (app_.padEditing()) {
+        button({x0 + 105, 138, 132, 23}, "BACK TO PADS", false, [this] { app_.leavePadEditor(); performanceOpen_ = true; projectOpen_ = false; }, 9);
+        button({x0 + 243, 138, 68, 23}, "HOME", false, [this] { app_.goHome(); }, 9);
+    }
     if (app_.metronomeSelected()) {
         // Use precisely the same 19x28 touch targets and 15x4 page markers
         // as ordinary sample tracks, in the same right-aligned position.
@@ -805,8 +808,9 @@ void SamplerUI::sequencerView() {
            [this] { app_.goHome(); sheetOpen_ = false; tempoOpen_ = false; }, 10);
     button({82, 9, 73, 31}, st_.playing ? "STOP" : "PLAY", st_.playing,
            [this] { app_.transportPlay(); }, 10, true);
-    button({162, 9, 91, 31}, "LIBRARY", false,
+    if (!app_.padSequencerEditing()) button({162, 9, 91, 31}, "LIBRARY", false,
            [this] { openLibrary(); }, 10);
+    else text(207, 25, 9, DIM, "SAMPLES LOCKED", 1, true);
     // Tempo/pitch is now exclusively under MET; keep scene switching here.
     if (app_.padSequencerEditing()) {
         button({260, 9, 122, 31}, "BACK TO PADS", false, [this] { app_.leavePadEditor(); performanceOpen_ = true; projectOpen_ = false; sheetOpen_ = false; }, 10);
@@ -1209,6 +1213,7 @@ void SamplerUI::projectSheet() {
     const float cw = (width - 3.f * gap) / 4.f;
     text(margin + 2, 31, 19, ACCENT, "PROJECT", 0, true);
     button({W_ - margin - 90, 10, 90, 32}, "HOME", false, [this] {
+        app_.goHome();
         projectOpen_ = false; performanceOpen_ = false; editor_ = false;
     }, 11);
 
@@ -1220,6 +1225,7 @@ void SamplerUI::projectSheet() {
            [this] { app_.requestLoopExport(); }, 10);
     button({margin + 3 * (cw + gap), 51, cw, 52}, "LOOP / SONG MODE", false,
            [this] {
+               app_.leavePadEditor();
                projectOpen_ = false; performanceOpen_ = true;
                sceneSaveAt_ = sceneDeleteAt_ = 0;
            }, 10, true);

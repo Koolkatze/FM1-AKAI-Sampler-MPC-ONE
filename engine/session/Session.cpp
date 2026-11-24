@@ -1276,9 +1276,10 @@ struct Session::Impl {
         const bool metroRec = freeRec || freeArmed || sampling || armedWait ||
             std::any_of(tracks.begin(), tracks.end(), [](const auto& track) { return track->clipRec; });
         a_metroRecording = metroRec;
-        const bool metroActive = !stopping && ((playing && (metroMode == 0 || metroMode == 3)) ||
-            ((metroMode == 0 || metroMode == 1 || metroMode == 3 || metroMode == 4) && metroRec));
-        if (!metroActive) { metroClickAge = sr; }
+        const bool metroRunning = playing && !stopping;
+        const bool metroActive = metroRunning && (metroMode == 0 || metroMode == 3 ||
+            ((metroMode == 1 || metroMode == 4) && metroRec));
+        if (!metroRunning) { metroClickAge = sr; }
         const bool metroPhone = metroActive && metroMode < 3 && !offlineRender;
         const double tapeClock = playing && loopSamples > 0 && !scrubbing
             ? std::max(0.0, (double)tapeSpeed.load()) : 1.0;
@@ -1290,7 +1291,7 @@ struct Session::Impl {
         float mp = 0.f;
         for (int i = 0; i < n; ++i) {
             const double beat = metroPosition;
-            const double beatAdvance = (metroActive ? beatStep : 0.0) *
+            const double beatAdvance = (metroRunning ? beatStep : 0.0) *
                 (playing && loopSamples > 0 && ramp && !scrubbing ? rateArr[(size_t)i] : 1.0);
             metroPosition += beatAdvance;
             if (metroPosition >= metroBeats) metroPosition = std::fmod(metroPosition, (double)metroBeats);
@@ -1301,7 +1302,7 @@ struct Session::Impl {
             const bool swung = (beatIndex & 1) && beat <= offbeat && after > offbeat;
             const bool boundary = nextBeat != beatIndex &&
                 ((nextBeat & 1) == 0 || metroSwing <= 0.f);
-            if (metroActive && (swung || boundary || (beat == 0.0 && metroClickAge >= clickLength))) {
+            if (metroRunning && (swung || boundary || (beat == 0.0 && metroClickAge >= clickLength))) {
                 metroClickAge = 0;
                 metroClickAccent = boundary ? nextBeat == 0 : (beatIndex == 0);
             }
@@ -1615,7 +1616,7 @@ void Session::setDelay(float sec, float fb) { d->post([=] {
 void Session::setRetLevel(int w, float v) { d->post([=] { d->ret[w & 1] = clampf(v, 0.f, 1.5f); }); }
 
 // ---- looper ----
-void Session::freeRecord(int t, bool on) { if (t >= 0 && t < kTracks) d->post([=] { if (on) d->freeStart(t); else d->freeStop(); }); }
+void Session::freeRecord(int t, bool on) { if (t >= 0 && t < kTracks) d->post([=] { if (on) { if (d->padEdit < 0) d->freeStart(t); } else d->freeStop(); }); }
 void Session::clipRecord(int t, bool on) {
     if (t < 0 || t >= kTracks) return;
     d->post([this, t, on] {
@@ -1629,10 +1630,10 @@ void Session::clipRecord(int t, bool on) {
     });
 }
 void Session::clipClear(int t) {
-    if (t >= 0 && t < kTracks) d->post([=] { auto& tr = *d->tracks[(size_t)t]; tr.clipRec = false; tr.clip = std::make_shared<std::vector<float>>(); tr.clipHas = false; d->clearIfEmpty(); d->refreshLoopProcessing(); });
+    if (t >= 0 && t < kTracks) d->post([=] { if (d->padEdit >= 0) return; auto& tr = *d->tracks[(size_t)t]; tr.clipRec = false; tr.clip = std::make_shared<std::vector<float>>(); tr.clipHas = false; d->clearIfEmpty(); d->refreshLoopProcessing(); });
 }
 void Session::clipClearAll() {
-    d->post([this] { for (auto& t : d->tracks) { t->clipRec = false; t->clip = std::make_shared<std::vector<float>>(); t->clipHas = false; } d->clearIfEmpty(); d->refreshLoopProcessing(); });
+    d->post([this] { if (d->padEdit >= 0) return; for (auto& t : d->tracks) { t->clipRec = false; t->clip = std::make_shared<std::vector<float>>(); t->clipHas = false; } d->clearIfEmpty(); d->refreshLoopProcessing(); });
 }
 void Session::loopDouble() {
     d->post([this] {
