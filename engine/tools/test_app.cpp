@@ -1547,6 +1547,51 @@ int main() {
               pad.status().track_has_clip[1] && pad.status().track_has_clip[2],
               "HOME restores the full composition including new compatible audio tracks");
     }
+    {   // LIBRARY stays accessible during live pad sequencing.
+        Session pad(sr);
+        pad.setSampleDir(std::string(getenv("HOME")) + "/fm1-sampler/samples");
+        SamplerApp live(pad, [](const uint8_t*, size_t) {});
+        std::array<float, 512> audio{};
+        pad.captureScene(0, 0, 0);
+        pad.process(audio.data(), nullptr, 256); live.tick(100);
+        live.selectScene(0);
+        CHECK(live.enterPadEditor(true), "saved sequencer-only pad opens for live editing");
+        pad.process(audio.data(), nullptr, 256); live.tick(133);
+        live.selectSequencerTrack(0);
+        const int bank = live.sequencerScene();
+        const auto prior = live.sequencerSoundName(0);
+        int entry = -1;
+        for (int i = 0; i < (int)live.library().size(); ++i)
+            if (live.library()[(size_t)i].label != prior) { entry = i; break; }
+        CHECK(entry >= 0, "library has a different sample for pad audition");
+        if (entry >= 0) {
+            const std::string expected = live.library()[(size_t)entry].label;
+            live.loadEntry(entry);
+            pad.process(audio.data(), nullptr, 256); live.tick(166);
+            CHECK(live.sequencerSoundName(0) == expected &&
+                  live.sequencerScene() == bank && live.padSequencerEditing() &&
+                  live.status().activeScene == 0 && live.status().playing,
+                  "pad sample replacement preserves active pattern and transport");
+        }
+        SamplerUI liveUI(live);
+        liveUI.setSize(860.f, 400.f, 0.f, 0.f);
+        for (bool light : {true, false}) {
+            theme::apply(light);
+            liveUI.frame(200);
+            bool library = false;
+            for (const auto& op : liveUI.ops())
+                if (op.type == UiOp::TEXT && op.text == "LIBRARY") library = true;
+            CHECK(library, "%s pad sequencer exposes LIBRARY", light ? "LIGHT" : "DARK");
+            liveUI.touch(0, 207.f, 25.f, 201); liveUI.touch(2, 207.f, 25.f, 201);
+            liveUI.frame(202);
+            bool sheet = false;
+            for (const auto& op : liveUI.ops())
+                if (op.type == UiOp::TEXT && op.text == "FM1-SAMPLER") sheet = true;
+            CHECK(sheet && live.status().playing, "library opens without stopping selected pad");
+            liveUI.touch(0, 670.f, 30.f, 203); liveUI.touch(2, 670.f, 30.f, 203);
+        }
+        theme::apply(true);
+    }
     {   // Click never leaks into monitored phone mix or user loop buffers.
         Session metro(SAMPLERATE);
         std::array<float, 512> pcm{};

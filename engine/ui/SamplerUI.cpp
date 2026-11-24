@@ -808,9 +808,8 @@ void SamplerUI::sequencerView() {
            [this] { app_.goHome(); sheetOpen_ = false; tempoOpen_ = false; }, 10);
     button({82, 9, 73, 31}, st_.playing ? "STOP" : "PLAY", st_.playing,
            [this] { app_.transportPlay(); }, 10, true);
-    if (!app_.padSequencerEditing()) button({162, 9, 91, 31}, "LIBRARY", false,
+    button({162, 9, 91, 31}, "LIBRARY", false,
            [this] { openLibrary(); }, 10);
-    else text(207, 25, 9, DIM, "SAMPLES LOCKED", 1, true);
     // Tempo/pitch is now exclusively under MET; keep scene switching here.
     if (app_.padSequencerEditing()) {
         button({260, 9, 122, 31}, "BACK TO PADS", false, [this] { app_.leavePadEditor(); performanceOpen_ = true; projectOpen_ = false; sheetOpen_ = false; }, 10);

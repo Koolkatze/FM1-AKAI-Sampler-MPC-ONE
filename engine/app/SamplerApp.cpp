@@ -409,7 +409,9 @@ std::string SamplerApp::takePackDeletePath() {
     return path;
 }
 void SamplerApp::loadEntry(int i) {
-    if (padSequencerEditing() || (!sequencerMode_ && !padTrackWritable(track_))) { say("SHARED SAMPLE LOCKED"); return; }
+    // Sequencer samples can be replaced live, including while editing a pad.
+    // Keep the free-track restriction only for the sixteen audio looper tracks.
+    if (!sequencerMode_ && !padTrackWritable(track_)) { say("TRACK IN USE BY PROJECT"); return; }
     if (i < 0 || i >= (int)lib_.size()) return;
     libCursor_ = i; auditionAt_ = 0;
     const Entry& e = lib_[(size_t)i];
