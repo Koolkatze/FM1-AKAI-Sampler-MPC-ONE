@@ -716,25 +716,28 @@ void SamplerUI::deck(Rect r) {
     }
     // Five equal-size touch areas in the original central icon column.
     // SEQUENCER takes the middle slot, not the sample/knob panel.
+    // Shift the central icons upward: the final touch target ends at y=262,
+    // leaving 26 px clear above the bottom tape/sample timeline (starts y=288).
+    // All icons stay inside the middle x-column; the sample panel starts x=440.
     const uint32_t micCol = mic == 1 || mic == 2 ? kOrange : kPaper;
-    icon(4, mx, 32, kPaper);
-    tap({mx - 32, 6, 64, 52}, [this] { setLight(!theme::light); });
-    icon(5, mx, 86, micCol);
-    tap({mx - 32, 60, 64, 52}, [this] { app_.micSample(); });
-    icon(11, mx, 140, kOrange);
-    text(mx, 160, 8.5f, kDim, "SEQ", 1, true);
-    tap({mx - 32, 114, 64, 52}, [this] {
+    icon(4, mx, 22, kPaper);
+    tap({mx - 32, 0, 64, 48}, [this] { setLight(!theme::light); });
+    icon(5, mx, 76, micCol);
+    tap({mx - 32, 50, 64, 50}, [this] { app_.micSample(); });
+    icon(11, mx, 130, kOrange);
+    text(mx, 150, 8.5f, kDim, "SEQ", 1, true);
+    tap({mx - 32, 104, 64, 50}, [this] {
         app_.enterSequencer();
         sheetOpen_ = false;
         tempoOpen_ = false;
     });
     // HOME folder icon restores the library with IMPORT ZIP. The physical
     // PRESETS encoder continues to navigate the same folder selection.
-    icon(6, mx, 194, kPaper);
-    text(mx, 215, 8.5f, kDim, "LIBRARY", 1, true);
-    tap({mx - 32, 168, 64, 52}, [this] { openLibrary(); });
-    icon(7, mx, 248, projectOpen_ ? kOrange : kPaper);
-    tap({mx - 32, 222, 64, 52}, [this] { projectOpen_ = true; });
+    icon(6, mx, 184, kPaper);
+    text(mx, 205, 8.5f, kDim, "LIBRARY", 1, true);
+    tap({mx - 32, 158, 64, 50}, [this] { openLibrary(); });
+    icon(7, mx, 238, projectOpen_ ? kOrange : kPaper);
+    tap({mx - 32, 212, 64, 50}, [this] { projectOpen_ = true; });
     // the sample of this track, its page and the four knobs of the page
     if (app_.metronomeSelected()) {
         rrect({x0, 14, w0, 118}, R_CARD, SURFACE);
