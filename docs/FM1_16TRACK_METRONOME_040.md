@@ -12,7 +12,7 @@
 
 ## Acceso al metrónomo
 
-1. En HOME, toca el **icono de pasos SEQ en la columna central** para abrir SEQUENCER. Los cinco iconos centrales (tema, micrófono, SEQ, LIBRARY, PROJECT) se han movido un poco hacia arriba para no invadir el visor inferior.
+1. En HOME, toca el **icono de pasos SEQ en la columna central** para abrir SEQUENCER. Los cinco iconos centrales (tema, micrófono, SEQ, LIBRARY, PROJECT) están espaciados para que PROJECT quede al mismo nivel que los controles PLAY/STOP/REC, dejando libre el visor inferior. El BPM se lee a la izquierda del dibujo de la cinta de HOME, tanto con INFO visible como oculto.
 2. Abre **HOME / COMPOSE** y selecciona T1–T16 o MET con el indicador de pista (pasa de T16 a MET). El botón **SELECT** físico también permite cambiar la pista y entrar en MET.
 3. En MET se muestran las mismas dos páginas de cuatro knobs, **TEMPO / PITCH** y **METER / CLICK**, pero se eligen con los **dos pequeños marcadores de página en la posición habitual de las demás pistas**, no con botones grandes. **SEL** físico también alterna las páginas.
 4. Los cuatro encoders K1–K4 controlan únicamente los parámetros de la página visible cuando MET está seleccionado.
