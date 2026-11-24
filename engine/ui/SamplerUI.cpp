@@ -88,6 +88,7 @@ void SamplerUI::frame(uint32_t now) {
         seenHomeNavigation_ = app_.homeNavigationSerial();
         sheetOpen_ = false;
         projectOpen_ = false;
+        performanceOpen_ = false;
         projectSlotsMode_ = 0;
         projectConfirmSlot_ = -1;
         projectConfirmUntil_ = 0;
@@ -109,10 +110,9 @@ void SamplerUI::frame(uint32_t now) {
     if (!editor_) {   // the cassette deck fills the screen; the old sample / page editor stays one tap away (EDIT)
         deck({0, 0, W_, H_});
         if (sheetOpen_) librarySheet();
-        if (projectOpen_) {
-            projectSheet();
-            if (projectSlotsMode_) projectSlotsSheet();
-        }
+        if (projectOpen_) projectSheet();
+        if (performanceOpen_) performanceSheet();
+        if (projectSlotsMode_) projectSlotsSheet();
         if (tempoOpen_) tempoPanel();
         return;
     }
@@ -740,7 +740,9 @@ void SamplerUI::deck(Rect r) {
     text(mx, 214, 8.5f, kDim, "LIBRARY", 1, true);
     tap({mx - 32, 168, 64, 52}, [this] { openLibrary(); });
     icon(7, mx, ty, projectOpen_ ? kOrange : kPaper);
-    tap({mx - 32, ty - 26, 64, 52}, [this] { projectOpen_ = true; });
+    tap({mx - 32, ty - 26, 64, 52}, [this] {
+        projectOpen_ = true; performanceOpen_ = false;
+    });
     // the sample of this track, its page and the four knobs of the page
     if (app_.metronomeSelected()) {
         rrect({x0, 14, w0, 118}, R_CARD, SURFACE);
@@ -1181,234 +1183,222 @@ void SamplerUI::librarySheet() {
 // PROJECT: original loop actions on the left; scene / song sequencer on the
 // right. Same paper/ink/orange design in either light or dark mode.
 void SamplerUI::projectSheet() {
-    rrect({0, 0, W_, H_}, 0, theme::withAlpha(kBg, 235));
-    tap({0, 0, W_, H_}, [this] { projectOpen_ = false; });
+    // PROJECT is a full-screen menu. The performance editor is NOT rendered
+    // underneath, so it cannot compete for touch targets or space.
+    rrect({0, 0, W_, H_}, 0, BG);
+    const float margin = 14.f, gap = 8.f, width = W_ - 2.f * margin;
+    const float cw = (width - 3.f * gap) / 4.f;
+    text(margin + 2, 31, 19, ACCENT, "PROJECT", 0, true);
+    button({W_ - margin - 90, 10, 90, 32}, "HOME", false, [this] {
+        projectOpen_ = false; performanceOpen_ = false; editor_ = false;
+    }, 11);
 
-    const float outer = std::max(10.f, std::min(16.f, W_ * 0.02f));
-    const float gap = 10.f;
-    const bool twoColumns = W_ >= 720.f;
-    const float width = twoColumns ? (W_ - 2 * outer - gap) / 2 : W_ - 2 * outer;
-    const Rect left{outer, 12, width, H_ - 24};
-    const Rect right{twoColumns ? outer + width + gap : outer, 12, width, H_ - 24};
-    const bool showLeft = twoColumns || !projectRight_;
-    const bool showRight = twoColumns || projectRight_;
+    button({margin, 51, cw, 52}, "SAVE PROJECT", false,
+           [this] { projectSlotsMode_ = 1; projectPage_ = 0; projectConfirmSlot_ = -1; }, 11);
+    button({margin + cw + gap, 51, cw, 52}, "LOAD PROJECT", false,
+           [this] { projectSlotsMode_ = 2; projectPage_ = 0; projectConfirmSlot_ = -1; }, 11);
+    button({margin + 2 * (cw + gap), 51, cw, 52}, "EXPORT ALL LOOPS", false,
+           [this] { app_.requestLoopExport(); }, 10);
+    button({margin + 3 * (cw + gap), 51, cw, 52}, "LOOP / SONG MODE", false,
+           [this] {
+               projectOpen_ = false; performanceOpen_ = true;
+               sceneSaveAt_ = sceneDeleteAt_ = 0;
+           }, 10, true);
 
-    if (showLeft) {
-        rrect(left, R_CARD, SURFACE); stroke(left, R_CARD, OUTLINE, 1);
-        tap(left, [] {});
-    }
-    if (showRight) {
-        rrect(right, R_CARD, SURFACE); stroke(right, R_CARD, OUTLINE, 1);
-        tap(right, [] {});
-    }
-    // A narrow landscape layout switches between the two columns instead of
-    // making buttons overlap or shrinking the text until it is illegible.
-    if (!twoColumns) {
-        button({W_ - outer - 279, 20, 75, 28},
-               projectRight_ ? "PROJECT" : "SCENES", false,
-               [this] { projectRight_ = !projectRight_; }, 10);
-    }
-    button({W_ - outer - 194, 20, 108, 28}, "EXPORT SONG", false,
-           [this] { app_.requestSongExport(); }, 9, true);
-    button({W_ - outer - 79, 20, 71, 28}, "CLOSE", false,
-           [this] { projectOpen_ = false; }, 10);
-
-    if (showLeft) {
-        const int t = app_.track();
-        const bool hasClip = st_.track_has_clip[t];
-        const bool any = app_.loopExists();
-        text(left.x + 14, left.y + 23, 16, ACCENT, "PROJECT", 0, true);
-        // Complete project save/load is separate from SAVE LOOP and SAVE SCENE.
-        // Files contain COMPOSE, live loops, 12 scenes, SONG, samples and FX.
-        const float buttonW = (left.w - 40.f) / 3.f;
-        button({left.x + 10, left.y + 43, buttonW, 24}, "SAVE PROJECT", false,
-               [this] { projectSlotsMode_ = 1; projectPage_ = 0; projectConfirmSlot_ = -1; }, 8.8f);
-        button({left.x + 20 + buttonW, left.y + 43, buttonW, 24}, "LOAD PROJECT", false,
-               [this] { projectSlotsMode_ = 2; projectPage_ = 0; projectConfirmSlot_ = -1; }, 8.8f);
-        button({left.x + 30 + 2 * buttonW, left.y + 43, buttonW, 24},
-               "EXPORT ALL LOOPS", false, [this] { app_.requestLoopExport(); }, 8.8f, true);
-        const std::string note = app_.toast().empty() ? app_.loopText() : app_.toast();
-        text(left.x + 14, left.y + 76, 10, DIM, fit(note, left.w - 26, 10), 0, true);
-        const float rh = std::min(38.f, (left.h - 100.f) / 7.f - 3.f);
-        const float step = (left.h - 100.f) / 7.f;
-        float y = left.y + 86;
-        auto row = [&](const std::string& label, const std::string& hint,
-                       bool enabled, bool highlighted, std::function<void()> onTap) {
-            Rect rr{left.x + 12, y, left.w - 24, rh};
-            rrect(rr, R_CONTROL, highlighted ? RAISED : SURFACE);
-            stroke(rr, R_CONTROL, highlighted ? ACCENT : OUTLINE, highlighted ? 1.7f : 1.f);
-            text(rr.x + 11, rr.y + rh * 0.35f, 11, enabled ? (highlighted ? ACCENT : TEXT) : DIM,
-                 fit(label, rr.w - 22, 11), 0, true);
-            text(rr.x + 11, rr.y + rh * 0.73f, 8.5f, DIM,
-                 fit(hint, rr.w - 22, 8.5f), 0, false);
-            if (enabled) tap(rr, std::move(onTap));
-            y += step;
-        };
-        const std::string tn = "TRACK " + std::to_string(t + 1);
-        row("SAVE LOOP OF " + tn, "choose a name / SAVED / Loops", hasClip, false,
-            [this] { app_.requestName(1); });
-        row("CLEAR LOOP OF " + tn, "the other tracks keep theirs", hasClip, false,
-            [this] { app_.loopClearTrack(); });
-        const bool armed = clearArmed_ && now_ < clearArmed_;
-        row(armed ? "TAP AGAIN: CLEAR ALL LOOPS" : "CLEAR ALL LOOPS",
-            "clears live tracks, NOT saved scenes", any, armed, [this, armed] {
-                if (armed) { app_.loopClear(); clearArmed_ = 0; }
-                else clearArmed_ = now_ + 3000;
-            });
-        row("OPEN THE EDITOR", "sample editor, FX and track controls", true, false,
-            [this] { editor_ = true; projectOpen_ = false; });
-        row("LOOP LENGTH x2", "double the loop, repeat content", any, false,
-            [this] { app_.lenAction(true); });
-        row("LOOP LENGTH /2", "halve loop length", any, false,
-            [this] { app_.lenAction(false); });
-        row("LOOP SOURCE: " + app_.knobs(SamplerApp::P_SAVE)[1].value,
-            "record from track sound or microphone", true, false,
-            [this] { auto k = app_.knobs(SamplerApp::P_SAVE);
-                     k[1].step(k[1].norm > 0.5f ? -1 : 1); });
-    }
-
-    if (!showRight) return;
-
-    const float x = right.x + 12, w = right.w - 24;
-    const float top = right.y + 43;
-    const float scale = std::min(1.f, (right.h - 47.f) / 316.f);
-    const auto Y = [&](float d) { return top + d * scale; };
-    const auto H = [&](float d) { return d * scale; };
-    text(x, right.y + 22, 15, ACCENT, "LOOP / SONG", 0, true);
-
-    // Performance mode selector. Selecting LOOP enables the physical C1..B1
-    // scene bank, while SONG keeps the keyboard available for playing notes.
-    const float third = (w - 10) / 3;
-    button({x, Y(1), third, H(29)}, "COMPOSE", !app_.performanceActive(),
-           [this] { app_.exitPerformanceMode(); projectOpen_ = false; editor_ = false; }, 10);
-    button({x + third + 5, Y(1), third, H(29)}, "LOOP MODE",
-           app_.performanceActive() && !app_.songMode(),
-           [this] { app_.setSongMode(false); }, 10);
-    button({x + 2 * (third + 5), Y(1), third, H(29)}, "SONG MODE",
-           app_.performanceActive() && app_.songMode(),
-           [this] { app_.setSongMode(true); }, 10);
-    text(x, Y(42), 10, DIM,
-         !app_.performanceActive() ? "COMPOSITION: KEYS PLAY NOTES" :
-         app_.songMode() ? "SELECT A PAD TO BUILD THE SONG" : "C1..B1  /  LIVE SCENE LAUNCH", 0, true);
-
-    // Twelve pitched launch pads. Grey is empty; accent is active, outlined
-    // accent is selected or queued. Each pad represents up to eight clips.
-    const float pgap = 4, padW = (w - 5 * pgap) / 6;
-    for (int slot = 0; slot < Session::kScenes; ++slot) {
-        const int row = slot / 6, col = slot % 6;
-        Rect pad{x + col * (padW + pgap), Y(50 + row * 33), padW, H(30)};
-        const bool saved = app_.sceneSaved(slot);
-        const bool selected = app_.selectedScene() == slot;
-        const bool active = st_.activeScene == slot;
-        const bool queued = st_.queuedScene == slot;
-        const uint32_t edge = queued || active ? ACCENT : selected ? TEXT : OUTLINE;
-        rrect(pad, R_CONTROL, active ? RAISED : SURFACE);
-        stroke(pad, R_CONTROL, edge, active || queued || selected ? 2.f : 1.f);
-        text(pad.x + pad.w / 2, pad.y + H(10), 11, saved ? (active ? ACCENT : TEXT) : DIM,
-             SamplerApp::sceneLabel(slot), 1, true);
-        const uint16_t mask = st_.sceneTracks[slot];
-        int count = 0; for (int t = 0; t < SamplerApp::kTracks; ++t) count += (mask >> t) & 1;
-        text(pad.x + pad.w / 2, pad.y + H(23), 8, DIM,
-             queued ? "NEXT" : saved ?
-             (st_.sceneSequencers[slot]
-                ? std::to_string(count) + "L+S" + std::to_string(st_.sceneSequencers[slot])
-                : std::to_string(count) + " LOOPS") : "EMPTY", 1, false);
-        // Selecting a pad for editing must not swap the COMPOSE loops with the
-        // old scene. The separate LAUNCH button (and physical MIDI pads) play it.
-        tap(pad, [this, slot] { app_.selectScene(slot, false); });
-    }
-
-    text(x, Y(122), 10, DIM, "LOOPER TRACKS · " + SamplerApp::sceneLabel(app_.selectedScene()), 0, true);
-    // A LOOP part selects zero or ONE complete sequencer scene; never its lanes.
-    button({x + w - 176, Y(110), 28, H(21)}, "<", false,
-           [this] { app_.selectLoopSequencerScene(app_.loopSequencerScene() - 1); }, 10);
-    text(x + w - 143, Y(122), 10, ACCENT,
-         app_.loopSequencerScene() < 0 ? "SEQ OFF" :
-         "SEQ SCENE " + std::to_string(app_.loopSequencerScene() + 1), 0, true);
-    button({x + w - 30, Y(110), 28, H(21)}, ">", false,
-           [this] { app_.selectLoopSequencerScene(app_.loopSequencerScene() + 1); }, 10);
-    const float trackGap = 4.f, trackW = (w - 7 * trackGap) / 8;
-    for (int t = 0; t < SamplerApp::kTracks; ++t) {
-        const bool on = !!(app_.sceneTracks() & (1u << t));
-        Rect tr{x + (t % 8) * (trackW + trackGap), Y(127 + (t / 8) * 17), trackW, H(16)};
-        rrect(tr, R_CONTROL, on ? RAISED : SURFACE);
-        stroke(tr, R_CONTROL, on ? ACCENT : OUTLINE, on ? 2.f : 1.f);
-        text(tr.x + tr.w / 2, tr.y + tr.h / 2, 10, on ? ACCENT : DIM,
-             std::to_string(t + 1), 1, true);
-        tap(tr, [this, t] { app_.toggleSceneTrack(t); });
-    }
-
-    // Scene creation is non-destructive; overwriting/deleting needs a second
-    // confirmation tap so a live performer cannot erase a set by accident.
-    const int slot = app_.selectedScene();
-    const bool saved = app_.sceneSaved(slot);
-    const bool saveArmed = saved && sceneArmedSlot_ == slot && now_ < sceneSaveAt_;
-    const bool delArmed = saved && deleteArmedSlot_ == slot && now_ < sceneDeleteAt_;
-    const float aw = (w - 12) / 4;
-    button({x, Y(163), aw, H(29)},
-           saveArmed ? "CONFIRM SAVE" : saved ? "REPLACE" : "SAVE SCENE",
-           saveArmed, [this, saved, saveArmed, slot] {
-               if (saved && !saveArmed) {
-                   sceneArmedSlot_ = slot; sceneSaveAt_ = now_ + 3000;
-                   app_.say("TAP REPLACE AGAIN");
-               } else {
-                   app_.saveScene(); sceneSaveAt_ = 0;
-               }
-           }, 10);
-    button({x + aw + 4, Y(163), aw, H(29)}, "LAUNCH", false,
-           [this, slot] { app_.setSongMode(false); app_.selectScene(slot, true); }, 10);
-    button({x + 2 * (aw + 4), Y(163), aw, H(29)}, "EXIT", false,
-           [this] { app_.exitPerformanceMode(); projectOpen_ = false; editor_ = false; }, 10);
-    button({x + 3 * (aw + 4), Y(163), aw, H(29)},
-           delArmed ? "CONFIRM DEL" : "DELETE", delArmed,
-           [this, saved, delArmed, slot] {
-               if (!saved) return;
-               if (!delArmed) {
-                   deleteArmedSlot_ = slot; sceneDeleteAt_ = now_ + 3000;
-                   app_.say("TAP DELETE AGAIN");
-               } else {
-                   app_.deleteScene(); sceneDeleteAt_ = 0;
-               }
-           }, 10);
-
-    line(x, Y(202), x + w, Y(202), OUTLINE, 1);
-    const auto& order = app_.songOrder();
-    text(x, Y(215), 10, DIM, "SONG ORDER   " + std::to_string(order.size()) + " SCENES", 0, true);
-    const int show = std::min(6, (int)order.size());
-    const int at = app_.selectedSongStep();
-    const int offset = std::max(0, std::min(std::max(0, (int)order.size() - show), at - 4));
-    if (show == 0) {
-        text(x + w / 2, Y(235), 10, DIM, "CHOOSE A PAD AND TAP ADD", 1, false);
-    } else {
-        const float sg = 4, cellW = (w - 5 * sg) / 6;
-        for (int i = 0; i < show; ++i) {
-            const int seq = offset + i;
-            Rect b{x + i * (cellW + sg), Y(225), cellW, H(27)};
-            const bool playing = st_.songPlaying && st_.songStep == seq;
-            const bool selected = at == seq;
-            rrect(b, R_CONTROL, playing ? RAISED : SURFACE);
-            stroke(b, R_CONTROL, playing ? ACCENT : selected ? TEXT : OUTLINE,
-                   playing || selected ? 2.f : 1.f);
-            text(b.x + b.w / 2, b.y + H(10), 10, playing ? ACCENT : TEXT,
-                 SamplerApp::sceneLabel(order[(size_t)seq]), 1, true);
-            text(b.x + b.w / 2, b.y + H(22), 8, DIM, std::to_string(seq + 1), 1, false);
-            tap(b, [this, seq] { app_.selectSongStep(seq); });
-        }
-    }
-
-    const float ew = (w - 12) / 4;
-    button({x, Y(261), ew, H(27)}, "+ ADD", false, [this] { app_.songAdd(); }, 10);
-    button({x + ew + 4, Y(261), ew, H(27)}, "REMOVE", false, [this] { app_.songRemove(); }, 9);
-    button({x + 2 * (ew + 4), Y(261), ew, H(27)}, "MOVE <", false, [this] { app_.songMove(-1); }, 9);
-    button({x + 3 * (ew + 4), Y(261), ew, H(27)}, "MOVE >", false, [this] { app_.songMove(+1); }, 9);
-
-    const float half = (w - 5) / 2;
-    button({x, Y(298), half, H(30)}, "PLAY SONG", st_.songPlaying,
-           [this] { app_.setSongMode(true); app_.playSong(); }, 11);
-    button({x + half + 5, Y(298), half, H(30)}, "STOP", false,
-           [this] { app_.stopSong(); }, 11);
+    const std::string note = app_.toast().empty() ? app_.loopText() : app_.toast();
+    text(margin + 2, 125, 11, DIM, fit(note, width - 4, 11), 0, true);
+    const int t = app_.track();
+    const bool hasClip = st_.track_has_clip[t], any = app_.loopExists();
+    const bool armed = clearArmed_ && now_ < clearArmed_;
+    const std::string trackName = "TRACK " + std::to_string(t + 1);
+    // Seven roomy menu actions, on a separate grid below project management.
+    // Cards use the original theme tokens and never overlap their neighbors.
+    auto action = [&](int i, const std::string& heading, const std::string& hint,
+                      bool enabled, bool attention, std::function<void()> onClick) {
+        const float y = 143.f + (i / 4) * 94.f;
+        Rect r{margin + (i % 4) * (cw + gap), y, cw, 79.f};
+        rrect(r, R_CONTROL, attention ? RAISED : SURFACE);
+        stroke(r, R_CONTROL, attention ? ACCENT : OUTLINE, attention ? 2.f : 1.f);
+        text(r.x + 9, r.y + 24, 10.5f,
+             enabled ? (attention ? ACCENT : TEXT) : DIM,
+             fit(heading, r.w - 18, 10.5f), 0, true);
+        text(r.x + 9, r.y + 53, 9.f, DIM, fit(hint, r.w - 18, 9.f), 0);
+        if (enabled) tap(r, std::move(onClick));
+    };
+    action(0, "SAVE LOOP " + trackName, "Named WAV / SAVED/LOOPS",
+           hasClip, false, [this] { app_.requestName(1); });
+    action(1, "CLEAR " + trackName, "Only this audio loop",
+           hasClip, false, [this] { app_.loopClearTrack(); });
+    action(2, armed ? "CONFIRM CLEAR ALL" : "CLEAR ALL LOOPS", "Does not erase saved pads",
+           any, armed, [this, armed] {
+               if (armed) { app_.loopClear(); clearArmed_ = 0; }
+               else clearArmed_ = now_ + 3000;
+           });
+    action(3, "SAMPLE EDITOR", "Samples, FX and settings",
+           true, false, [this] { editor_ = true; projectOpen_ = false; });
+    action(4, "LOOP LENGTH x2", "Double loop duration",
+           any, false, [this] { app_.lenAction(true); });
+    action(5, "LOOP LENGTH /2", "Half loop duration",
+           any, false, [this] { app_.lenAction(false); });
+    action(6, "LOOP SOURCE", app_.knobs(SamplerApp::P_SAVE)[1].value,
+           true, false, [this] {
+               auto knobs = app_.knobs(SamplerApp::P_SAVE);
+               knobs[1].step(knobs[1].norm > .5f ? -1 : 1);
+           });
+    text(margin + 4, H_ - 20, 10, DIM,
+         "Projects store COMPOSE + LOOPS + SONG + all 8 SEQ scenes + audio + FX", 0);
 }
 
+void SamplerUI::performanceSheet() {
+    // Entire screen is dedicated to performance. LOOP and SONG have separate
+    // content layouts; both preserve the existing capture/launch/song engine.
+    rrect({0, 0, W_, H_}, 0, BG);
+    const float x = 14.f, w = W_ - 28.f, gap = 7.f;
+    const float scale = std::max(.7f, H_ / 400.f);
+    const auto Y = [scale](float y) { return y * scale; };
+    const auto H = [scale](float h) { return h * scale; };
+    const float third = std::min(130.f, (w - 130.f) / 4.f);
+    button({x, Y(8), 93, H(38)}, "PROJECT", false, [this] {
+        performanceOpen_ = false; projectOpen_ = true;
+    }, 11);
+    button({x + 101, Y(8), third, H(38)}, "COMPOSE",
+           !app_.performanceActive(), [this] { app_.exitPerformanceMode(); }, 11);
+    button({x + 107 + third, Y(8), third, H(38)}, "LOOP MODE",
+           app_.performanceActive() && !app_.songMode(),
+           [this] { app_.setSongMode(false); }, 11);
+    button({x + 113 + 2 * third, Y(8), third, H(38)}, "SONG MODE",
+           app_.performanceActive() && app_.songMode(),
+           [this] { app_.setSongMode(true); }, 11);
+    button({x + w - 80, Y(8), 80, H(38)}, "HOME", false, [this] {
+        app_.exitPerformanceMode();
+        performanceOpen_ = false; projectOpen_ = false; editor_ = false;
+    }, 11);
+    text(x + 4, Y(62), 11, DIM,
+         app_.songMode() ? "SONG  /  SELECT PAD TO ADD TO THE ARRANGEMENT" :
+         "LOOP  /  SELECT PAD TO EDIT · LAUNCH TO PLAY", 0, true);
+
+    // 12 generously sized pads across two rows, all mutually exclusive.
+    const float padGap = 7.f, padW = (w - 5.f * padGap) / 6.f;
+    for (int slot = 0; slot < Session::kScenes; ++slot) {
+        const bool saved = app_.sceneSaved(slot);
+        const bool selected = app_.selectedScene() == slot;
+        const bool active = st_.activeScene == slot, queued = st_.queuedScene == slot;
+        const int row = slot / 6, col = slot % 6;
+        Rect r{x + col * (padW + padGap), Y(72 + row * 52), padW, H(46)};
+        rrect(r, R_CONTROL, active ? RAISED : SURFACE);
+        stroke(r, R_CONTROL, (queued || active) ? ACCENT : selected ? TEXT : OUTLINE,
+               queued || active || selected ? 2.f : 1.f);
+        text(r.x + r.w / 2.f, r.y + H(16), 13,
+             saved ? (active ? ACCENT : TEXT) : DIM, SamplerApp::sceneLabel(slot), 1, true);
+        int count = 0; const uint16_t mask = st_.sceneTracks[slot];
+        for (int t = 0; t < SamplerApp::kTracks; ++t) count += (mask >> t) & 1;
+        const int seq = st_.sceneSequencers[slot];
+        text(r.x + r.w / 2.f, r.y + H(34), 9.5f, DIM,
+             queued ? "NEXT" : !saved ? "EMPTY" :
+             (seq ? std::to_string(count) + "L + SC" + std::to_string(seq)
+                  : std::to_string(count) + " LOOPS"), 1);
+        tap(r, [this, slot] { app_.selectScene(slot, false); });
+    }
+
+    if (!app_.songMode()) {
+        text(x + 4, Y(187), 12, ACCENT,
+             "LOOPER TRACKS  /  PAD " + SamplerApp::sceneLabel(app_.selectedScene()), 0, true);
+        const float trGap = 7.f, trW = (w - 7.f * trGap) / 8.f;
+        for (int t = 0; t < SamplerApp::kTracks; ++t) {
+            const bool selected = (app_.sceneTracks() & (1u << t)) != 0;
+            Rect r{x + (t % 8) * (trW + trGap), Y(200 + (t / 8) * 36),
+                   trW, H(31)};
+            rrect(r, R_CONTROL, selected ? RAISED : SURFACE);
+            stroke(r, R_CONTROL, selected ? ACCENT : OUTLINE, selected ? 2.f : 1.f);
+            text(r.x + r.w / 2, r.y + r.h / 2, 11.5f,
+                 selected ? ACCENT : DIM, "T" + std::to_string(t + 1), 1, true);
+            tap(r, [this, t] { app_.toggleSceneTrack(t); });
+        }
+        text(x + 4, Y(285), 12, ACCENT, "SEQUENCER SCENE  /  ONE PATTERN PER PAD", 0, true);
+        const float scGap = 6.f, scW = (w - 8.f * scGap) / 9.f;
+        for (int i = 0; i < 9; ++i) {
+            const int seq = i - 1; // OFF followed by the eight complete SEQ scenes
+            const bool selected = app_.loopSequencerScene() == seq;
+            Rect r{x + i * (scW + scGap), Y(296), scW, H(34)};
+            button(r, seq < 0 ? "OFF" : "SC " + std::to_string(seq + 1),
+                   selected, [this, seq] { app_.selectLoopSequencerScene(seq); },
+                   10.5f, selected);
+        }
+        const int slot = app_.selectedScene();
+        const bool saved = app_.sceneSaved(slot);
+        const bool saveArmed = saved && sceneArmedSlot_ == slot && now_ < sceneSaveAt_;
+        const bool delArmed = saved && deleteArmedSlot_ == slot && now_ < sceneDeleteAt_;
+        const float aw = (w - 3.f * gap) / 4.f;
+        button({x, Y(345), aw, H(40)},
+               saveArmed ? "CONFIRM REPLACE" : saved ? "REPLACE PAD" : "SAVE PAD",
+               saveArmed, [this, slot, saved, saveArmed] {
+                   if (saved && !saveArmed) {
+                       sceneArmedSlot_ = slot; sceneSaveAt_ = now_ + 3000;
+                       app_.say("TAP REPLACE AGAIN");
+                   } else { app_.saveScene(); sceneSaveAt_ = 0; }
+               }, 11, true);
+        button({x + aw + gap, Y(345), aw, H(40)}, "LAUNCH",
+               false, [this, slot] {
+                   app_.setSongMode(false); app_.selectScene(slot, true);
+               }, 11);
+        button({x + 2.f * (aw + gap), Y(345), aw, H(40)}, "EXIT LOOP",
+               false, [this] { app_.exitPerformanceMode(); }, 11);
+        button({x + 3.f * (aw + gap), Y(345), aw, H(40)},
+               delArmed ? "CONFIRM DELETE" : "DELETE PAD",
+               delArmed, [this, slot, saved, delArmed] {
+                   if (!saved) return;
+                   if (!delArmed) {
+                       deleteArmedSlot_ = slot; sceneDeleteAt_ = now_ + 3000;
+                       app_.say("TAP DELETE AGAIN");
+                   } else { app_.deleteScene(); sceneDeleteAt_ = 0; }
+               }, 11);
+    } else {
+        const auto& order = app_.songOrder();
+        const int at = app_.selectedSongStep();
+        text(x + 4, Y(190), 12, ACCENT,
+             "SONG ORDER  /  " + std::to_string(order.size()) + " PADS", 0, true);
+        const int show = std::min(8, (int)order.size());
+        const int offset = std::max(0, std::min(std::max(0, (int)order.size() - show), at - 6));
+        if (show == 0) {
+            text(x + w / 2.f, Y(237), 12, DIM, "SELECT A SAVED PAD, THEN TAP + ADD",
+                 1, true);
+        } else {
+            const float sg = 7.f, sw = (w - 7.f * sg) / 8.f;
+            for (int i = 0; i < show; ++i) {
+                const int index = offset + i;
+                Rect r{x + i * (sw + sg), Y(210), sw, H(58)};
+                const bool selected = at == index;
+                const bool active = st_.songPlaying && st_.songStep == index;
+                rrect(r, R_CONTROL, active ? RAISED : SURFACE);
+                stroke(r, R_CONTROL, active ? ACCENT : selected ? TEXT : OUTLINE,
+                       active || selected ? 2.f : 1.f);
+                text(r.x + r.w / 2, r.y + H(20), 12, active ? ACCENT : TEXT,
+                     SamplerApp::sceneLabel(order[(size_t)index]), 1, true);
+                text(r.x + r.w / 2, r.y + H(42), 10, DIM,
+                     std::to_string(index + 1), 1);
+                tap(r, [this, index] { app_.selectSongStep(index); });
+            }
+        }
+        const float aw = (w - 3.f * gap) / 4.f;
+        button({x, Y(288), aw, H(40)}, "+ ADD PAD", false,
+               [this] { app_.songAdd(); }, 11, true);
+        button({x + aw + gap, Y(288), aw, H(40)}, "REMOVE",
+               false, [this] { app_.songRemove(); }, 11);
+        button({x + 2.f * (aw + gap), Y(288), aw, H(40)}, "MOVE LEFT",
+               false, [this] { app_.songMove(-1); }, 11);
+        button({x + 3.f * (aw + gap), Y(288), aw, H(40)}, "MOVE RIGHT",
+               false, [this] { app_.songMove(+1); }, 11);
+        button({x, Y(345), aw * 2 + gap, H(40)}, "PLAY SONG",
+               st_.songPlaying, [this] { app_.playSong(); }, 11, true);
+        button({x + 2.f * (aw + gap), Y(345), aw, H(40)}, "STOP SONG",
+               false, [this] { app_.stopSong(); }, 11);
+        button({x + 3.f * (aw + gap), Y(345), aw, H(40)}, "EXPORT SONG",
+               false, [this] { app_.requestSongExport(); }, 11);
+    }
+    const auto toast = app_.toast();
+    if (!toast.empty() && H_ >= 440.f)
+        text(W_ / 2, H_ - 8, 10, ACCENT, fit(toast, w, 10), 1, true);
+}
 
 void SamplerUI::projectSlotsSheet() {
     // Dialog takes precedence over every underlying PROJECT control.
