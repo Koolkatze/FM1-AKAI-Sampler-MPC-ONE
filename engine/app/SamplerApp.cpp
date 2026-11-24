@@ -899,7 +899,13 @@ bool SamplerApp::saveFullProject(int slot) {
     m.selectedSeqScene = seqScene_;
     m.selectedLoopSeqScene = loopSeqScene_;
     for (int scene = 0; scene < kSeqScenes; ++scene) {
-        const auto& pattern = seqScenes_[(size_t)scene];
+        // The active scene is edited live in seqGrid_/seqBeats_ and may not
+        // have been switched away from yet. Snapshot those live edits too.
+        auto pattern = seqScenes_[(size_t)scene];
+        if (scene == seqScene_) {
+            pattern.grid = seqGrid_;
+            pattern.beats = seqBeats_;
+        }
         m.seqScenesBeats[(size_t)scene] = (uint8_t)pattern.beats;
         for (int t = 0; t < kSeqTracks; ++t)
             for (int step = 0; step < kSeqSteps; ++step) {
