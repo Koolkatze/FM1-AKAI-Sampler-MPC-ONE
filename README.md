@@ -2,7 +2,9 @@
 
 Sampler, editor de audio y **looper de 16 pistas** para Android. El teléfono ejecuta el motor de audio, la biblioteca y la interfaz; el **M-VAVE FM-1** puede actuar como superficie de control MIDI por **USB**, con botones, teclado y encoders. El motor y la interfaz se encuentran en `engine/`; Android integra ese motor mediante JNI.
 
-> **Versión 0.42.4 (en validación):** icono MET directo en HOME; seis iconos centrales con separación uniforme y alineación inferior de transporte, PROJECT y K1–K4.
+> **Versión 0.42.5 (en validación):** los seis iconos centrales de HOME se muestran sin etiquetas; se conserva la separación y el acceso directo al metrónomo.
+
+> **Versión 0.42.4 ([release estable](https://github.com/Koolkatze/fm1-sampler/releases/tag/v0.42.4)):** icono MET directo en HOME; seis iconos centrales con separación uniforme y alineación inferior de transporte, PROJECT y K1–K4.
 
 > **Versión 0.42.3 — APK firmada y validada; promoción estable pendiente:** EXPORT SONG indica el estado de exportación en naranja hasta confirmar que el WAV se ha guardado en Downloads. [Notas 0.42.3](docs/RELEASE_NOTES_0423.md).
 
@@ -16,7 +18,7 @@ Sampler, editor de audio y **looper de 16 pistas** para Android. El teléfono ej
 
 ## Descargas y compilación
 
-- **APK 0.42.3:** [Releases](https://github.com/Koolkatze/fm1-sampler/releases) · [APK firmada y validada original](https://github.com/Koolkatze/fm1-sampler/releases/download/v0.42.3-pad-edit-preview.1/FM1-Sampler-PadEdit-0.42.3-signed-preview.apk) · [5 comprobaciones automatizadas superadas](https://github.com/Koolkatze/fm1-sampler/actions/runs/45489044004). La promoción a release estable está preparada pero GitHub rechazó la creación con HTTP 403. La descarga firmada original sigue disponible; cambiar su estado de publicación no cambia la firma ni el ID de paquete. Antes de actualizar, guarda el proyecto con SAVE PROJECT y crea SAVE BACKUP. [Guía de actualización sin perder datos](docs/UPDATES_WITHOUT_DATA_LOSS.md).
+- **Última APK estable:** [Descargar FM1 Sampler 0.42.4 firmada](https://github.com/Koolkatze/fm1-sampler/releases/download/v0.42.4/FM1-Sampler-0.42.4-signed.apk) · [Releases](https://github.com/Koolkatze/fm1-sampler/releases) · [Validación](https://github.com/Koolkatze/fm1-sampler/actions/runs/45494804901). Las actualizaciones mantienen el ID y certificado permanente. Guarda SAVE PROJECT y SAVE BACKUP antes de actualizar; no desinstales la APK anterior.
 - **Código Android:** `android/`; **motor de audio/UI:** `engine/`; **protocolo de hardware:** `PROTOCOL.md`.
 - **Utilidad ADB para backups TAR y proyectos `.fm1p`:** [`tools/FM1_ADB_Recuperacion_0389.py`](tools/FM1_ADB_Recuperacion_0389.py) y [guía de uso](docs/ADB_RECUPERACION_0389.md).
 - **Documentación:** [16 pistas + MET v0.40](docs/FM1_16TRACK_METRONOME_040.md), [resumen técnico y pendientes](docs/STATUS_040.md), [secuenciador + Tempo Flex v0.39](docs/FM1_SEQUENCER_039.md), [biblioteca, proyectos y backups](docs/SAMPLE_LIBRARY.md), [escenas y SONG](docs/SCENES_AND_SONG.md), [migración](docs/MIGRACION_SEGURA.md).
@@ -44,7 +46,7 @@ Las compilaciones debug de GitHub usan **`com.ferluht.fm1sampler.scenes`**; la v
 
 ## Guía rápida 0.40: 16 pistas + metrónomo
 
-**Primeros pasos:** los seis iconos centrales (tema, micrófono, SEQ, LIBRARY, MET y PROJECT) tienen separación vertical uniforme; PROJECT y PLAY/STOP/REC/CLEAR se alinean con la parte inferior de K1–K4, sin invadir la línea temporal. Toca MET para seleccionar directamente el metrónomo. El BPM se muestra en el lado izquierdo del dibujo de la cinta, no junto a los knobs. En **HOME / COMPOSE**, selecciona una de las pistas **T1–T16**; después de T16 aparece **MET**, que es un controlador independiente y no guarda audio. La vista de pistas tiene dos columnas de ocho. El secuenciador mantiene sus **ocho pistas propias** y sus **ocho escenas**.
+**Primeros pasos:** los seis iconos centrales (tema, micrófono, SEQ, LIBRARY, MET y PROJECT) no llevan etiquetas de texto y tienen separación vertical uniforme; PROJECT y PLAY/STOP/REC/CLEAR se alinean con la parte inferior de K1–K4, sin invadir la línea temporal. Toca MET para seleccionar directamente el metrónomo. El BPM se muestra en el lado izquierdo del dibujo de la cinta, no junto a los knobs. En **HOME / COMPOSE**, selecciona una de las pistas **T1–T16**; después de T16 aparece **MET**, que es un controlador independiente y no guarda audio. La vista de pistas tiene dos columnas de ocho. El secuenciador mantiene sus **ocho pistas propias** y sus **ocho escenas**.
 
 **Control de MET:** abre MET con el selector de pista o el SELECT físico; pulsa **SEL** para cambiar entre sus tres páginas. En el móvil, usa **los mismos pequeños indicadores de página de las pistas normales**, a la derecha del nombre de página; los botones grandes TEMPO / PITCH y METER / CLICK ya no aparecen:
 

@@ -153,19 +153,27 @@ int main() {
         for (bool light : {true, false}) {
             theme::apply(light);
             ui.frame(now + (light ? 10 : 11));
-            bool seqIconLabel = false, libraryIconLabel = false, metIconLabel = false;
-            bool obsoleteButton = false;
-            for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
-                seqIconLabel |= op.text == "SEQ" &&
-                    std::fabs(op.f[0] - 351.f) < 1.f && op.f[1] < 175.f;
-                libraryIconLabel |= op.text == "LIBRARY" &&
-                    std::fabs(op.f[0] - 351.f) < 1.f && op.f[1] < 220.f;
-                metIconLabel |= op.text == "MET" && std::fabs(op.f[0] - 351.f) < 1.f && std::fabs(op.f[1] - 241.f) < 2.f;
-                obsoleteButton |= op.text == "TEMPO / PITCH" ||
-                    op.text == "SEQUENCER";
+            bool toolbarText = false, obsoleteButton = false;
+            bool seqGlyph = false, libraryGlyph = false, metGlyph = false;
+            for (const auto& op : ui.ops()) {
+                if (op.type == UiOp::TEXT) {
+                    toolbarText |= std::fabs(op.f[0] - 351.f) < 1.f &&
+                        (op.text == "SEQ" || op.text == "LIBRARY" || op.text == "MET");
+                    obsoleteButton |= op.text == "TEMPO / PITCH" || op.text == "SEQUENCER";
+                }
+                if (op.type == UiOp::RRECT) {
+                    seqGlyph |= std::fabs(op.f[0] - 340.5f) < .2f &&
+                        std::fabs(op.f[1] - 114.f) < .2f && std::fabs(op.f[2] - 4.2f) < .2f;
+                    libraryGlyph |= std::fabs(op.f[0] - 341.f) < .2f &&
+                        std::fabs(op.f[1] - 167.3f) < .2f && std::fabs(op.f[2] - 7.3f) < .2f;
+                }
+                if (op.type == UiOp::LINE)
+                    metGlyph |= std::fabs(op.f[0] - 345.5f) < .2f &&
+                        std::fabs(op.f[1] - 210.f) < .2f &&
+                        std::fabs(op.f[2] - 340.f) < .2f && std::fabs(op.f[3] - 230.f) < .2f;
             }
-            CHECK(seqIconLabel && libraryIconLabel && metIconLabel && !obsoleteButton,
-                  "%s HOME has central sequencer icon without large SEQ or TEMPO buttons",
+            CHECK(seqGlyph && libraryGlyph && metGlyph && !toolbarText && !obsoleteButton,
+                  "%s HOME retains central SEQ, LIBRARY and MET glyphs with no labels",
                   light ? "LIGHT" : "DARK");
             // Test the BPM against both sizes of the tape illustration (INFO
             // shown/hidden), while ensuring it is never drawn beside K1..K4.
@@ -1507,7 +1515,7 @@ int main() {
         CHECK(app.browserDir().empty() && app.browserSelected() == nullptr,
               "repeated BACK can reach the unselected archive root again");
         click(660.f, 29.f); // CLOSE the library sheet to get back to HOME
-        CHECK(!hasText("+ IMPORT ZIP") && hasText("LIBRARY"),
+        CHECK(!hasText("+ IMPORT ZIP") && !hasText("LIBRARY"),
               "closing the library sheet restores HOME controls");
         click(91.f, 26.f); // HOME's ENTER must use the same root navigator
         CHECK(app.browserDir() == "PACKS" && hasText("My Imported ZIP"),

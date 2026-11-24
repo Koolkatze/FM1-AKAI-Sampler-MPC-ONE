@@ -734,24 +734,23 @@ void SamplerUI::deck(Rect r) {
     // Uniform 48-unit pitch; the last glyph shares the transport row.
     // Separate touch zones end before the timeline, including the last tool.
     const uint32_t micCol = mic == 1 || mic == 2 ? kOrange : kPaper;
-    auto tool = [&](int index, int glyph, uint32_t color, const char* label, std::function<void()> action) {
+    auto tool = [&](int index, int glyph, uint32_t color, std::function<void()> action) {
         const float cy = toolTop + index * toolPitch;
         icon(glyph, mx, cy, color);
-        if (*label) text(mx, cy + 18.f, 8.5f, color == kOrange ? kOrange : kDim, label, 1, true);
         const float top = cy - toolPitch * .5f + 1.f;
         const float bottom = std::min(cy + toolPitch * .5f - 1.f, timelineY - 3.f);
         tap({mx - 32, top, 64, bottom - top}, std::move(action));
     };
-    tool(0, 4, kPaper, "", [this] { setLight(!theme::light); });
-    tool(1, 5, micCol, "", [this] { app_.micSample(); });
-    tool(2, 11, kPaper, "SEQ", [this] {
+    tool(0, 4, kPaper, [this] { setLight(!theme::light); });
+    tool(1, 5, micCol, [this] { app_.micSample(); });
+    tool(2, 11, kPaper, [this] {
         app_.enterSequencer(); sheetOpen_ = false; tempoOpen_ = false;
     });
-    tool(3, 6, kPaper, "LIBRARY", [this] { openLibrary(); });
-    tool(4, 12, app_.metronomeSelected() ? kOrange : kPaper, "MET", [this] {
+    tool(3, 6, kPaper, [this] { openLibrary(); });
+    tool(4, 12, app_.metronomeSelected() ? kOrange : kPaper, [this] {
         app_.selectMetronome(); // respects existing pad-compose protection
     });
-    tool(5, 7, projectOpen_ ? kOrange : kPaper, "", [this] {
+    tool(5, 7, projectOpen_ ? kOrange : kPaper, [this] {
         projectOpen_ = true; performanceOpen_ = false;
     });
     // the sample of this track, its page and the four knobs of the page
