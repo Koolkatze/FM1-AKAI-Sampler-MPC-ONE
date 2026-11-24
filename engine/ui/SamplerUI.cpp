@@ -1266,7 +1266,7 @@ void SamplerUI::projectSheet() {
     const float trackGap = 4.f, trackW = (w - 7 * trackGap) / 8;
     for (int t = 0; t < SamplerApp::kTracks; ++t) {
         const bool on = !!(app_.sceneTracks() & (1u << t));
-        Rect tr{x + (t % 8) * (trackW + trackGap), Y(129 + (t / 8) * 23), trackW, H(21)};
+        Rect tr{x + (t % 8) * (trackW + trackGap), Y(127 + (t / 8) * 17), trackW, H(16)};
         rrect(tr, R_CONTROL, on ? RAISED : SURFACE);
         stroke(tr, R_CONTROL, on ? ACCENT : OUTLINE, on ? 2.f : 1.f);
         text(tr.x + tr.w / 2, tr.y + tr.h / 2, 10, on ? ACCENT : DIM,
@@ -1281,7 +1281,7 @@ void SamplerUI::projectSheet() {
     const bool saveArmed = saved && sceneArmedSlot_ == slot && now_ < sceneSaveAt_;
     const bool delArmed = saved && deleteArmedSlot_ == slot && now_ < sceneDeleteAt_;
     const float aw = (w - 12) / 4;
-    button({x, Y(176), aw, H(24)},
+    button({x, Y(163), aw, H(29)},
            saveArmed ? "CONFIRM SAVE" : saved ? "REPLACE" : "SAVE SCENE",
            saveArmed, [this, saved, saveArmed, slot] {
                if (saved && !saveArmed) {
@@ -1291,11 +1291,11 @@ void SamplerUI::projectSheet() {
                    app_.saveScene(); sceneSaveAt_ = 0;
                }
            }, 10);
-    button({x + aw + 4, Y(176), aw, H(24)}, "LAUNCH", false,
+    button({x + aw + 4, Y(163), aw, H(29)}, "LAUNCH", false,
            [this, slot] { app_.setSongMode(false); app_.selectScene(slot, true); }, 10);
-    button({x + 2 * (aw + 4), Y(176), aw, H(24)}, "EXIT", false,
+    button({x + 2 * (aw + 4), Y(163), aw, H(29)}, "EXIT", false,
            [this] { app_.exitPerformanceMode(); projectOpen_ = false; editor_ = false; }, 10);
-    button({x + 3 * (aw + 4), Y(176), aw, H(24)},
+    button({x + 3 * (aw + 4), Y(163), aw, H(29)},
            delArmed ? "CONFIRM DEL" : "DELETE", delArmed,
            [this, saved, delArmed, slot] {
                if (!saved) return;
