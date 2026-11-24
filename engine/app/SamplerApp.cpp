@@ -1156,6 +1156,7 @@ void SamplerApp::cueHold(bool down) {
     }
 }
 void SamplerApp::loopRecord() {
+    if (metroSelected_) { say("SELECT A LOOP TRACK TO RECORD"); return; }
     if (st_.songPlaying) { say("STOP SONG BEFORE RECORDING"); return; }
     if (st_.freeArmed || st_.freeRecording) { s_.freeRecord(track_, false); say("LOOP SET"); return; }
     if (!loopAny_ && !st_.track_clip_rec[track_]) {   // a clean looper: arm the first take, it starts with the first note (or sound) and sets the loop length
@@ -1184,6 +1185,7 @@ void SamplerApp::loopSave(const std::string& name) {
     commitTrack_ = -2;
 }
 void SamplerApp::loopClearTrack() {
+    if (metroSelected_) { say("METRONOME HAS NO AUDIO CLIP"); return; }
     if (!st_.track_has_clip[track_]) { say("NO LOOP ON THIS TRACK"); return; }
     s_.clipClear(track_);
     say("LOOP OF TRACK " + std::to_string(track_ + 1) + " CLEARED");
@@ -1193,6 +1195,7 @@ void SamplerApp::loopClear() {   // PROJECT menu: every loop of every track, so 
     say("ALL LOOPS CLEARED");
 }
 void SamplerApp::micSample() {
+    if (metroSelected_) { say("SELECT AN AUDIO TRACK FIRST"); return; }
     if (mic_ == 0) {
         s_.recorderWait(true); s_.recorderStart();
         mic_ = 1; micTrack_ = track_; say("SAMPLING: MAKE A SOUND");
@@ -1224,6 +1227,7 @@ void SamplerApp::keyEvent(int raw, bool down) {   // MIDI scene bank in LOOP mod
         }
         return;
     }
+    if (metroSelected_ && down) return; // no note triggers on the click-only track
     if (sceneKeys_ && !songMode_) {
         // Ableton labels MIDI 36..47 as C1..B1. Also accept scientific C1
         // (24..35), while the physical FM-1 first 12 keys arrive as 53..64.
@@ -1399,13 +1403,14 @@ void SamplerApp::button(int b, bool down) {
         }
         return;
     }
-    if (b == SAVE) {   // only the LOOP page: saving and clearing loops lives in the phone's PROJECT menu
-        if (down) page_ = P_SAVE;
+    if (b == SAVE) {   // metronome never enters a sample save page
+        if (down) page_ = metroSelected_ ? P_METRO_SETTINGS : P_SAVE;
         return;
     }
     if (!down) return;
+    if (metroSelected_ && b != HOME && b != SEL) return;
     switch (b) {
-    case HOME: if (sequencerMode_) exitSequencer(); else { exitPerformanceMode(); page_ = P_HOME; } ++homeNavigationSerial_; break;
+    case HOME: if (sequencerMode_) exitSequencer(); else { if (metroSelected_) selectTrack(track_); exitPerformanceMode(); page_ = P_HOME; } ++homeNavigationSerial_; break;
     case FX: page_ = P_FX; break;
     case ENV: page_ = P_ENV; break;
     case LFO: page_ = P_LFO; break;
@@ -1438,12 +1443,12 @@ void SamplerApp::encoder(int i, int delta) {
     if (i == 1) { if (!sequencerMode_ && !metroSelected_) setAlgo(ts_[track_].algo + (delta > 0 ? 1 : -1)); return; }
     // OCT+ makes K1 the CUE subdivision control BEFORE and DURING PLAY.
     // Crucially, microphone threshold or the underlying page never steals K1.
-    if (i == 2 && ((held_ & (1u << OCT_UP)) || cueActive_ || page_ == P_CUE)) {
+    if (i == 2 && !metroSelected_ && ((held_ & (1u << OCT_UP)) || cueActive_ || page_ == P_CUE)) {
         setCueDivision(cueDivision_ + (delta > 0 ? 1 : -1));
         touchedKnob_ = 0; touchedAt_ = nowMs_;
         return;
     }
-    if (i == 2 && mic_ == 1 && page_ != P_SAVE) { setMicThreshold01(micThr_ + (delta > 0 ? 0.03f : -0.03f)); touchedKnob_ = 0; touchedAt_ = nowMs_; return; }   // K1 = trigger level while the microphone listens
+    if (i == 2 && !metroSelected_ && mic_ == 1 && page_ != P_SAVE) { setMicThreshold01(micThr_ + (delta > 0 ? 0.03f : -0.03f)); touchedKnob_ = 0; touchedAt_ = nowMs_; return; }   // K1 = trigger level while the microphone listens
     Knobs k = knobs();
     const int idx = i - 2;
     if (idx < 4 && k[(size_t)idx].valid && k[(size_t)idx].step) { k[(size_t)idx].step(delta); touchedKnob_ = idx; touchedAt_ = nowMs_; }
@@ -1630,7 +1635,7 @@ void SamplerApp::leds() {
             if (k == seqTrack_) m |= 1ull << (14 + blacks[k] - 53);
     } else {
     if (st_.playing) m |= 1ull << PLAY;
-    if (st_.freeRecording || st_.track_clip_rec[track_] || mic_ == 2) { if (blinkFast) m |= 1ull << REC; }
+    if (st_.freeRecording || (!metroSelected_ && st_.track_clip_rec[track_]) || mic_ == 2) { if (blinkFast) m |= 1ull << REC; }
     else if (st_.freeArmed || mic_ == 1) { if (blinkSlow) m |= 1ull << REC; }
     else if (loopAny_) m |= 1ull << REC;
     // keys follow the tonality: the keyboard stays chromatic, only the keys that belong to the scale light, the root of each octave blinks slowly;
@@ -1663,7 +1668,7 @@ void SamplerApp::draw(uint32_t now) {
     char b[96];
     const Knobs k = knobs();
     // header: the track number and the sample name, the transport state as the same pictogram as on the phone
-    const bool recNow = st_.freeRecording || st_.track_clip_rec[track_];
+    const bool recNow = !metroSelected_ && (st_.freeRecording || st_.track_clip_rec[track_]);
     {
         const std::string lab = metroSelected_ ? "METRONOME" : sequencerMode_
             ? seqSourceNames_[(size_t)seqTrack_] : s_.trackLabel(track_);
