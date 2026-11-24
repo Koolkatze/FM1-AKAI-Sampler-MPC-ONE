@@ -647,9 +647,11 @@ void SamplerUI::deck(Rect r) {
         // The transparent touch target still cycles through tracks.
         const Rect trackTap{mx + 38, 35, x0 - (mx + 38) - 5, 97};
         text(trackTap.x + trackTap.w / 2, trackTap.y + trackTap.h / 2,
-             26, kOrange, "T" + std::to_string(t + 1), 1, true);
+             26, kOrange, app_.metronomeSelected() ? "MET" : "T" + std::to_string(t + 1), 1, true);
         tap(trackTap, [this, t] {
-            app_.selectTrack((t + 1) % SamplerApp::kTracks);
+            if (app_.metronomeSelected()) app_.selectTrack(0);
+            else if (t + 1 == SamplerApp::kTracks) app_.selectMetronome();
+            else app_.selectTrack(t + 1);
         });
     }
     // Compact two-line legend for the FM-1 physical buttons. It is NOT a
@@ -839,21 +841,24 @@ void SamplerUI::tempoPanel() {
 }
 
 void SamplerUI::trackList(Rect r) {
+    // Two columns of eight are legible on the landscape phone and retain
+    // full touch targets rather than squeezing sixteen rows vertically.
+    const float gap = 5.f, cw = (r.w - gap) / 2.f;
     const float rh = (r.h - 7 * 4) / 8;
     for (int i = 0; i < SamplerApp::kTracks; i++) {
-        Rect row{r.x, r.y + i * (rh + 4), r.w, rh};
+        Rect row{r.x + (i / 8) * (cw + gap), r.y + (i % 8) * (rh + 4), cw, rh};
         const bool sel = i == app_.track();
         rrect(row, R_CARD, sel ? RAISED : SURFACE);
         stroke(row, R_CARD, sel ? ACCENT : OUTLINE, sel ? 2 : 1);
         text(row.x + 14, row.y + rh / 2, T_TITLE, sel ? ACCENT : TEXT, std::to_string(i + 1), 1, true);
         const std::string lab = app_.sampleLabel(i);
-        text(row.x + 30, row.y + rh / 2 - 6, 11, lab.empty() ? DIM : TEXT, fit(lab.empty() ? "EMPTY" : lab, r.w - 40, 11), 0, true);
+        text(row.x + 30, row.y + rh / 2 - 6, 11, lab.empty() ? DIM : TEXT, fit(lab.empty() ? "EMPTY" : lab, cw - 40, 11), 0, true);
         // level and loop mark
         const float lv = std::min(1.f, st_.track_peak[i] * 1.5f);
-        rrect({row.x + 30, row.y + rh - 12, r.w - 44, 3}, 0, OUTLINE);
-        rrect({row.x + 30, row.y + rh - 12, (r.w - 44) * lv, 3}, 0, TEXT);
-        if (st_.track_clip_rec[i]) circle(row.x + r.w - 10, row.y + 10, 4, ACCENT);
-        else if (st_.track_has_clip[i]) circle(row.x + r.w - 10, row.y + 10, 3.5f, TEXT);
+        rrect({row.x + 30, row.y + rh - 12, cw - 44, 3}, 0, OUTLINE);
+        rrect({row.x + 30, row.y + rh - 12, (cw - 44) * lv, 3}, 0, TEXT);
+        if (st_.track_clip_rec[i]) circle(row.x + cw - 10, row.y + 10, 4, ACCENT);
+        else if (st_.track_has_clip[i]) circle(row.x + cw - 10, row.y + 10, 3.5f, TEXT);
         tap(row, [this, i] { app_.selectTrack(i); });
     }
 }
@@ -1237,7 +1242,7 @@ void SamplerUI::projectSheet() {
         stroke(pad, R_CONTROL, edge, active || queued || selected ? 2.f : 1.f);
         text(pad.x + pad.w / 2, pad.y + H(10), 11, saved ? (active ? ACCENT : TEXT) : DIM,
              SamplerApp::sceneLabel(slot), 1, true);
-        const uint8_t mask = st_.sceneTracks[slot];
+        const uint16_t mask = st_.sceneTracks[slot];
         int count = 0; for (int t = 0; t < SamplerApp::kTracks; ++t) count += (mask >> t) & 1;
         text(pad.x + pad.w / 2, pad.y + H(23), 8, DIM,
              queued ? "NEXT" : saved ?
@@ -1261,7 +1266,7 @@ void SamplerUI::projectSheet() {
     const float trackGap = 4.f, trackW = (w - 7 * trackGap) / 8;
     for (int t = 0; t < SamplerApp::kTracks; ++t) {
         const bool on = !!(app_.sceneTracks() & (1u << t));
-        Rect tr{x + t * (trackW + trackGap), Y(131), trackW, H(24)};
+        Rect tr{x + (t % 8) * (trackW + trackGap), Y(129 + (t / 8) * 23), trackW, H(21)};
         rrect(tr, R_CONTROL, on ? RAISED : SURFACE);
         stroke(tr, R_CONTROL, on ? ACCENT : OUTLINE, on ? 2.f : 1.f);
         text(tr.x + tr.w / 2, tr.y + tr.h / 2, 10, on ? ACCENT : DIM,
@@ -1276,7 +1281,7 @@ void SamplerUI::projectSheet() {
     const bool saveArmed = saved && sceneArmedSlot_ == slot && now_ < sceneSaveAt_;
     const bool delArmed = saved && deleteArmedSlot_ == slot && now_ < sceneDeleteAt_;
     const float aw = (w - 12) / 4;
-    button({x, Y(163), aw, H(29)},
+    button({x, Y(178), aw, H(25)},
            saveArmed ? "CONFIRM SAVE" : saved ? "REPLACE" : "SAVE SCENE",
            saveArmed, [this, saved, saveArmed, slot] {
                if (saved && !saveArmed) {
@@ -1286,7 +1291,7 @@ void SamplerUI::projectSheet() {
                    app_.saveScene(); sceneSaveAt_ = 0;
                }
            }, 10);
-    button({x + aw + 4, Y(163), aw, H(29)}, "LAUNCH", false,
+    button({x + aw + 4, Y(178), aw, H(25)}, "LAUNCH", false,
            [this, slot] { app_.setSongMode(false); app_.selectScene(slot, true); }, 10);
     button({x + 2 * (aw + 4), Y(163), aw, H(29)}, "EXIT", false,
            [this] { app_.exitPerformanceMode(); projectOpen_ = false; editor_ = false; }, 10);
