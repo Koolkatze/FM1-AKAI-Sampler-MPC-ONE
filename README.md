@@ -15,7 +15,7 @@ Las compilaciones debug de GitHub usan **`com.ferluht.fm1sampler.scenes`**; la v
 
 ## Guía rápida 0.40: 16 pistas + metrónomo
 
-**Primeros pasos:** el **icono de SEQUENCER** está en la columna central junto a tema, micrófono, biblioteca y proyectos, y los iconos se sitúan más arriba para dejar libre el visor inferior. En **HOME / COMPOSE**, selecciona una de las pistas **T1–T16**; después de T16 aparece **MET**, que es un controlador independiente y no guarda audio. La vista de pistas tiene dos columnas de ocho. El secuenciador mantiene sus **ocho pistas propias** y sus **ocho escenas**.
+**Primeros pasos:** el **icono de SEQUENCER** está en la columna central junto a tema, micrófono, biblioteca y proyectos, y el último icono (PROJECT) queda alineado horizontalmente con PLAY/STOP/REC, sin invadir la línea temporal inferior. El BPM se muestra en el lado izquierdo del dibujo de la cinta, no junto a los knobs. En **HOME / COMPOSE**, selecciona una de las pistas **T1–T16**; después de T16 aparece **MET**, que es un controlador independiente y no guarda audio. La vista de pistas tiene dos columnas de ocho. El secuenciador mantiene sus **ocho pistas propias** y sus **ocho escenas**.
 
 **Control de MET:** abre MET con el selector de pista o el SELECT físico; pulsa **SEL** para cambiar entre sus dos páginas. En el móvil, usa **los mismos pequeños indicadores de página de las pistas normales**, a la derecha del nombre de página; los botones grandes TEMPO / PITCH y METER / CLICK ya no aparecen:
 
