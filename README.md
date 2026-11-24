@@ -1,24 +1,41 @@
 # FM1 Sampler — Android + M-VAVE FM-1
 
-Sampler, editor de audio y **looper de 8 pistas** para Android. El teléfono ejecuta el motor de audio, la biblioteca y la interfaz; el **M-VAVE FM-1** puede actuar como superficie de control MIDI por **USB**, con botones, teclado y encoders. El motor y la interfaz se encuentran en `engine/`; Android integra ese motor mediante JNI.
+Sampler, editor de audio y **looper de 16 pistas** para Android. El teléfono ejecuta el motor de audio, la biblioteca y la interfaz; el **M-VAVE FM-1** puede actuar como superficie de control MIDI por **USB**, con botones, teclado y encoders. El motor y la interfaz se encuentran en `engine/`; Android integra ese motor mediante JNI.
 
-> **Estado de esta rama:** `feature/eight-track-step-sequencer`, candidato **FM1 Sampler 0.39.0** (8 pistas nuevas + Tempo Flex). Incluye el secuenciador independiente, EXPORT SONG, 16 proyectos paginados y publicación protegida por firma permanente. **La release 0.39 no debe usarse para actualizar hasta superar las verificaciones de firma y publicarse explícitamente.** No confundir este proyecto con Workbench, Urban-1 o Blackhole Remote. La compilación Android no instala firmware en el FM-1 físico.
+> **Versión 0.40.0 (preview):** rama `feature/16-looper-metronome-monitor`. **16 pistas de looper + metrónomo de control (MET)**, manteniendo las **8 pistas y 8 escenas del secuenciador**. La APK firmada supera CI; la monitorización del metrónomo por minijack del FM-1 es experimental y **no se ha validado físicamente**. No confundas Android APK con el firmware físico ni con Workbench, Urban-1 o Blackhole Remote.
 
 ## Descargas y compilación
 
-- **Última APK previa publicada:** [FM1 Sampler 0.38.15 — GitHub Releases](../../releases/tag/v0.38-library-preview.16). **Candidato 0.39.0:** la actualización firmada de SEQUENCER y TEMPO FLEX solo es válida cuando aparece en [Releases](../../releases) tras pasar la puerta de firma; consulta la [guía de actualización sin perder datos](docs/UPDATES_WITHOUT_DATA_LOSS.md).
+- **Versión 0.40.0 (pre-release de prueba):** [GitHub Releases](../../releases/tag/v0.40-metronome-preview.1). **Compilación 0.40 firmada y validada:** [descargar artefacto de GitHub Actions](https://github.com/Koolkatze/fm1-sampler/actions/runs/45376916551/artifacts/14910989314). Antes de instalar, sigue la [guía de actualización sin perder datos](docs/UPDATES_WITHOUT_DATA_LOSS.md).
 - **Código Android:** `android/`; **motor de audio/UI:** `engine/`; **protocolo de hardware:** `PROTOCOL.md`.
 - **Utilidad ADB para backups TAR y proyectos `.fm1p`:** [`tools/FM1_ADB_Recuperacion_0389.py`](tools/FM1_ADB_Recuperacion_0389.py) y [guía de uso](docs/ADB_RECUPERACION_0389.md).
-- **Documentación:** [SEQUENCER + Tempo Flex v0.39](docs/FM1_SEQUENCER_039.md), [biblioteca, importación, proyectos y backups](docs/SAMPLE_LIBRARY.md), [escenas y SONG](docs/SCENES_AND_SONG.md), [migración de versiones anteriores](docs/MIGRACION_SEGURA.md).
+- **Documentación:** [16 pistas + MET v0.40](docs/FM1_16TRACK_METRONOME_040.md), [resumen técnico y pendientes](docs/STATUS_040.md), [secuenciador + Tempo Flex v0.39](docs/FM1_SEQUENCER_039.md), [biblioteca, proyectos y backups](docs/SAMPLE_LIBRARY.md), [escenas y SONG](docs/SCENES_AND_SONG.md), [migración](docs/MIGRACION_SEGURA.md).
 
 Las compilaciones debug de GitHub usan **`com.ferluht.fm1sampler.scenes`**; la variante original usa **`com.ferluht.fm1sampler`**. Son instalaciones con datos privados separados. Las firmas de debug de diferentes ejecuciones pueden no coincidir: **no desinstales una app con proyectos/loops sin haber exportado y verificado una copia de seguridad externa**.
+
+## Guía rápida 0.40: 16 pistas + metrónomo
+
+**Primeros pasos:** En **HOME / COMPOSE**, selecciona una de las pistas **T1–T16**; después de T16 aparece **MET**, que es un controlador independiente y no guarda audio. La vista de pistas tiene dos columnas de ocho. El secuenciador mantiene sus **ocho pistas propias** y sus **ocho escenas**.
+
+**Control de MET:** abre MET con el selector de pista o el SELECT físico; pulsa **SEL** para cambiar entre sus dos páginas (también hay pestañas táctiles):
+
+| Página | K1 | K2 | K3 | K4 |
+|---|---|---|---|---|
+| **TEMPO / PITCH** | Tempo Flex, BPM | Pitch Bend, semitonos | Pitch Bend, cents | Pitched Tempo |
+| **METER / CLICK** | Compás 1/4–64/4 | Swing, 0–100 % | Volumen del clic, 0–100 % | Modo de clic |
+
+Los modos son **PLAY/REC** (clic durante PLAY y REC), **REC** (solo grabación), **OFF**, **PLAY/REC MON**, **REC MON** y **OFF MON**. Los modos *MON* requieren firmware específico en el FM-1: la mezcla principal se reproduce en el móvil y el clic de monitor va **solo al minijack del FM-1**. La salida y sincronía exactas **no están aún comprobadas en hardware real**. La APK por sí sola no modifica el firmware del FM-1.
+
+**Seguridad de datos:** la APK 0.40 mantiene el ID `com.ferluht.fm1sampler.scenes`, el certificado de firma permanente y sube el versionCode a **64**; permite actualizar la misma instalación firmada sin desinstalar. Crea un **SAVE PROJECT** y **SAVE BACKUP** comprobable antes de actualizar. El proyecto nuevo usa FMP2 v5, las escenas SCN3 y el estado de app v6; conserva la lectura de proyectos antiguos.
+
+**Manual de controles, compatibilidad y limitaciones:** [FM1_16TRACK_METRONOME_040.md](docs/FM1_16TRACK_METRONOME_040.md). **Resumen de pruebas:** [STATUS_040.md](docs/STATUS_040.md).
 
 ## Funciones de la aplicación Android
 
 ### HOME, biblioteca y controles de reproducción
 
-- Interfaz horizontal de cassette con tema **claro/oscuro** y monitor de audio. El indicador de pista activo es **solo T1…T8 en naranja**, grande, sin recuadro, fondo, raya lateral ni texto «TRACK», inmediatamente a la izquierda del visor de muestras. Tocarlo cambia la pista.
-- **8 pistas** independientes con instrumento/sampler, parámetros, efectos, grabaciones y audio en el looper.
+- Interfaz horizontal de cassette con tema **claro/oscuro** y monitor de audio. El indicador de pista activo es **T1…T16 o MET en naranja**, grande, sin recuadro, fondo, raya lateral ni texto «TRACK», inmediatamente a la izquierda del visor de muestras. Tocarlo cambia la pista.
+- **16 pistas** independientes (T1–T16) con instrumento/sampler, parámetros, efectos, grabaciones y audio en el looper; **MET** es una ranura adicional de control, sin ocupar pista grabable.
 - **SEQUENCER (0.39):** botón en HOME que abre **8 pistas adicionales**, con 16 pasos por página, patrones 1/4–64/4, samples independientes seleccionados desde LIBRARY, transporte sincronizado y pantalla Light/Dark. [Controles, tempo y firma](docs/FM1_SEQUENCER_039.md).
 - **PLAY, STOP, REC/OVERDUB y CLEAR** en HOME. PLAY y STOP controlan la cinta; durante la primera toma, el transporte puede finalizar la grabación antes de detener la reproducción. REC arma la primera toma y después permite overdub por pista.
 - **Visor de forma de onda** del sample, selección de modo, ventana START/END y voces; **timeline de los loops** con cabezal de reproducción y *scrub* táctil.
@@ -71,15 +88,15 @@ Las doce subdivisiones son: **1/1, 1/1T, 1/2, 1/2T, 1/4, 1/4T, 1/8, 1/8T, 1/16, 
 
 ### Grabación, proyectos y modos de composición
 
-- **COMPOSE:** tocar instrumentos y grabar loops en las ocho pistas, con transporte común, overdub, control de longitud (x2, /2), fuente SOUND/MIC y *tape scrub*.
+- **COMPOSE:** tocar instrumentos y grabar loops en las dieciséis pistas, con transporte común, overdub, control de longitud (x2, /2), fuente SOUND/MIC y *tape scrub*.
 - **PROJECT:** `SAVE PROJECT`, `LOAD PROJECT`, `EXPORT ALL LOOPS`, `SAVE LOOP OF TRACK`, `CLEAR LOOP OF TRACK`, `CLEAR ALL LOOPS` (confirmación), `OPEN THE EDITOR`, `LOOP LENGTH x2`, `LOOP LENGTH /2` y `LOOP SOURCE`.
 - **16 slots de proyecto**, en **dos páginas de 8** (`project_1.fm1p`…`project_16.fm1p`) en formato **FMP2**. Cada archivo contiene el proyecto completo guardado: estado COMPOSE, muestras originales incrustadas, configuración de pistas/FX, audio de los loops, escenas y orden SONG. Guardar con un nombre crea además un archivo `.name`. Cargar y reemplazar requieren confirmación según el estado.
-- **LOOP MODE:** doce escenas reutilizables, **C1…B1**, cada una con una selección de hasta ocho clips de loop. Guardar, reemplazar y eliminar escena con confirmación; lanzar una escena conmuta en el siguiente compás con fundido breve. Los clips guardados en escenas se conservan independientemente del borrado de los loops activos.
+- **LOOP MODE:** doce escenas reutilizables, **C1…B1**, cada una con una selección de hasta dieciséis clips de loop. Guardar, reemplazar y eliminar escena con confirmación; lanzar una escena conmuta en el siguiente compás con fundido breve. Los clips guardados en escenas se conservan independientemente del borrado de los loops activos.
 - **SONG MODE:** composición con una **secuencia de hasta 64 escenas**, admitiendo repeticiones; `+ ADD`, `REMOVE`, `MOVE <`, `MOVE >`, `PLAY SONG` y `STOP`. Las escenas se encadenan sincronizadas; al terminar la última, la canción **se detiene**.
 - **EXPORT SONG (0.38.12):** botón junto a **CLOSE** en PROJECT. Exporta **SONG.wav** desde la primera hasta la última escena del arrangement SONG (hasta 64 pasos, incluidas repeticiones), con audio de cada escena, DSP/FX de las pistas, reverb, delay, saturación y volumen/limitador master, más una cola final de efectos. Se publica en `Downloads/FM1-SAMPLER/EXPORTED LOOPS/` mediante Android MediaStore. **Si SONG no contiene escenas, muestra `NO SCENES IN SONG` y no genera archivo.** No modifica las escenas, la composición ni los proyectos.
 - **SAVE / LOAD PROJECT (0.38.12):** ahora se muestran **PAGE 1 / 2** y **PAGE 2 / 2**, cada una con ocho slots grandes. PREV/NEXT cambia de página; los slots 1–8 mantienen sus nombres y bytes, y 9–16 añaden capacidad sin renumerar proyectos antiguos.
 - **Actualización segura:** Android conserva datos privados al instalar una APK nueva sobre la anterior únicamente con el **mismo package ID, firma digital y versión superior**. La publicación requiere keystore permanente y huella de certificado fijada en GitHub; **si no están configurados no se publica una APK incompatible**. Las antiguas previews con firma temporal pueden necesitar migración de respaldo una sola vez; [instrucciones detalladas](docs/UPDATES_WITHOUT_DATA_LOSS.md).
-- **EXPORT ALL LOOPS (0.38.11):** exporta WAV estéreo 16-bit **con todo el procesamiento del looper**, no los buffers crudos. Cada `TRACK_01.wav`…`TRACK_08.wav` contiene su **tape speed / varispeed**, **saturación, LO-FI, WOBBLE, hiss y tono de cinta**, modulación LFO de volumen/pan, nivel/panorama de mezcla, **sidechain** y sus **reverb/delay sends y retornos**. `MASTER.wav` reproduce la mezcla completa con **reverb/delay global y el limitador/ganancia de master**. Los loops suenan como en la APK y conservan su duración relativa al tempo/velocidad del proyecto, con cola de FX de ciclos anteriores.
+- **EXPORT ALL LOOPS (0.38.11):** exporta WAV estéreo 16-bit **con todo el procesamiento del looper**, no los buffers crudos. Cada `TRACK_01.wav`…`TRACK_16.wav` contiene su **tape speed / varispeed**, **saturación, LO-FI, WOBBLE, hiss y tono de cinta**, modulación LFO de volumen/pan, nivel/panorama de mezcla, **sidechain** y sus **reverb/delay sends y retornos**. `MASTER.wav` reproduce la mezcla completa con **reverb/delay global y el limitador/ganancia de master**. Los loops suenan como en la APK y conservan su duración relativa al tempo/velocidad del proyecto, con cola de FX de ciclos anteriores.
   Se guardan en `Downloads/FM1-SAMPLER/EXPORTED LOOPS/` (Android 10+) y nunca alteran los clips originales. **Los stems procesados pueden no sumar exactamente el MASTER** por la no linealidad del delay y del limitador; lo ya grabado con efectos antes del loop no se vuelve a procesar dos veces. Solo se exportan **las pistas del loop actual**, no automáticamente toda una secuencia de SONG.
 
 ### Almacenamiento, packs y backups
@@ -88,7 +105,7 @@ La biblioteca privada de la app actual vive bajo `files/FM1-SAMPLER/`:
 
 ```text
 FM1-SAMPLER/
-├── PROYECTOS/         # 8 archivos .fm1p, nombres, escenas y assets
+├── PROYECTOS/         # hasta 16 archivos .fm1p, nombres, escenas y assets
 ├── OFFICIAL/          # Bass, Drums, Keys, Pads
 ├── SAVED/
 │   ├── LOOPS/         # WAV de loops guardados
@@ -107,7 +124,7 @@ FM1-SAMPLER/
 
 | Formato | Para qué sirve | Cómo se importa |
 |---|---|---|
-| **`.fm1p`** | Un proyecto FMP2 autónomo (slot 1–8). | `tools/FM1_ADB_Recuperacion_0389.py importar-fm1p ...` |
+| **`.fm1p`** | Un proyecto FMP2 autónomo (slots 1–16). | `tools/FM1_ADB_Recuperacion_0389.py importar-fm1p ...` |
 | **`.tar`** | Copia ADB del árbol privado `files/`, con proyectos, WAV, escenas y demás archivos. | `tools/FM1_ADB_Recuperacion_0389.py restaurar ...` |
 | **`.zip` de SAVE BACKUP** | Backup completo creado desde LIBRARY dentro de Android. | **LIBRARY → IMPORT BACKUP**, no el script ADB TAR |
 | **`.zip` de pack** | Samples y recursos de un paquete musical. | **LIBRARY → + IMPORT ZIP**, no IMPORT BACKUP |
@@ -135,7 +152,7 @@ Para **reemplazar** deliberadamente un slot, existe `--reemplazar`, que obliga a
 
 ## FM-1: controladores, pantalla y alcance
 
-- **SELECT:** cambiar pista 1–8; **PRESETS:** navegación y carga inmediata de samples; **ALGORITHM:** cambiar el modo de sample; **K1…K4:** parámetros de la página.
+- **SELECT:** cambiar pista 1–16 y MET; en MET, **SEL** alterna las dos páginas del metrónomo; **PRESETS:** navegación y carga inmediata de samples; **ALGORITHM:** cambiar el modo de sample; **K1…K4:** parámetros de la página.
 - Botones físicos **HOME, FX, ENV, LFO, ARP, SEQ, EDIT, GLO, SAVE, SEL, PLAY, REC** según el mapeo MIDI del firmware usado.
 - El motor incluye código para pantalla secundaria **240×240 y LEDs** del FM-1 mediante mensajes SysEx. La visualización y algunos eventos de teclas y botones dependen de lo que envíe efectivamente el firmware físico. La APK por sí sola **no reprograma** el FM-1.
 - El teclado puede funcionar cromáticamente o en escalas/acordes; en LOOP MODE se asigna al banco de escenas C1…B1.
@@ -160,16 +177,6 @@ cd android && gradle :app:assembleDebug --no-daemon
 ```
 
 Las pruebas automatizadas y compilaciones de GitHub no sustituyen una prueba real en Android con un FM-1 conectado. **No se han verificado en hardware todas las operaciones de ADB ni todos los firmwares físicos.**
-
-## Imágenes de referencia (de versiones anteriores)
-
-![Pantallas del FM-1](shots/readme_fm1_v37.png)
-
-![Cassette deck](shots/readme_deck_v37.png)
-
-![Grabación y micrófono](shots/readme_firstrec_v37.png) ![Micrófono](shots/readme_mic_v37.png)
-
-Las capturas son ilustrativas y pueden no mostrar los cambios recientes de HOME, LIBRARY o PROJECT.
 
 ## Android Picture-in-Picture (Scenes APK, Android 8+)
 
