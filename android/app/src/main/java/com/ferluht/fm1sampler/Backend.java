@@ -143,8 +143,11 @@ public class Backend {
     void startAudio() {
         usbAudioId = findUsbAudio();
         outputDeviceId = desiredAudioOutput(usbAudioId);
-        int r = Native.startAudio(engine, outputDeviceId);
+        boolean monitored = Native.metronomeMonitor(engine);
+        int r = Native.startAudio(engine, outputDeviceId, monitored);
         audioStarted = r == 0;
+        if (monitored && !audioStarted)
+            Native.say(engine, "PHONE SPEAKER UNAVAILABLE - MONITOR AUDIO STOPPED");
         Log.i(TAG, "audio start " + r + " device " + outputDeviceId +
               " (USB " + usbAudioId + ", monitor " + Native.metronomeMonitor(engine) + ")");
     }
