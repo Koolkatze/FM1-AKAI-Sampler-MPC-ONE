@@ -166,7 +166,36 @@ int main() {
             CHECK(seqIconLabel && libraryIconLabel && !obsoleteButton,
                   "%s HOME has central sequencer icon without large SEQ or TEMPO buttons",
                   light ? "LIGHT" : "DARK");
-            // The last tool's touch area ends at y251; the lower sample
+            // Test the BPM against both sizes of the tape illustration (INFO
+            // shown/hidden), while ensuring it is never drawn beside K1..K4.
+            for (bool help : {true, false}) {
+                ui.setShortcutHelpVisible(help);
+                ui.frame(now + (help ? 19 : 20));
+                int bpmAtTape = 0, bpmElsewhere = 0;
+                bool projectAtTransportLevel = false;
+                for (const auto& op : ui.ops()) {
+                    if (op.type == UiOp::TEXT &&
+                        op.text.find(" BPM") != std::string::npos) {
+                        if (std::fabs(op.f[0] - 24.f) < 1.f &&
+                            std::fabs(op.f[1] - 226.f) < 2.f) ++bpmAtTape;
+                        else ++bpmElsewhere;
+                    }
+                    // The top bar of the PROJECT icon is centered on y248,
+                    // the same y-value as PLAY/STOP/REC/CLEAR shapes.
+                    if (op.type == UiOp::RRECT &&
+                        std::fabs(op.f[0] - 341.f) < .2f &&
+                        std::fabs(op.f[1] - 238.7f) < .2f &&
+                        std::fabs(op.f[2] - 20.f) < .2f &&
+                        std::fabs(op.f[3] - 3.4f) < .2f)
+                        projectAtTransportLevel = true;
+                }
+                CHECK(bpmAtTape == 1 && bpmElsewhere == 0 && projectAtTransportLevel,
+                      "%s HOME (%s INFO) shows BPM on tape's left and aligns PROJECT with PLAY",
+                      light ? "LIGHT" : "DARK", help ? "WITH" : "WITHOUT");
+            }
+            ui.setShortcutHelpVisible(true);
+            ui.frame(now + 21);
+            // The last tool's touch area ends at y274; the lower sample
             // timeline starts y288, so the unused gap must stay inactive.
             ui.touch(0, 351.f, 277.f, now + 12);
             ui.touch(2, 351.f, 277.f, now + 12);
