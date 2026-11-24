@@ -1,4 +1,4 @@
-name: Publish FM1 Sampler 0.40 signed preview release
+name: Publish FM1 Sampler 0.41 full-screen LOOP/SONG signed preview
 
 on:
   push:
@@ -126,36 +126,36 @@ jobs:
           info=$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk" | head -n 1)
           echo "$info"
           if [[ "$info" != *"name='com.ferluht.fm1sampler.scenes'"* ]] || \
-             [[ "$info" != *"versionCode='64'"* ]]; then
+             [[ "$info" != *"versionCode='65'"* ]]; then
             echo "::error::APK package or version changed; refusing to publish an incompatible upgrade"
             exit 1
           fi
       - name: Stage and check APK
         run: |
           mkdir -p dist
-          cp android/app/build/outputs/apk/debug/app-debug.apk dist/FM1-Sampler-16Track-Metronome-0.40-signed-test.apk
-          unzip -t dist/FM1-Sampler-16Track-Metronome-0.40-signed-test.apk | tail -n 1
-          sha256sum dist/FM1-Sampler-16Track-Metronome-0.40-signed-test.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/FM1-Sampler-LoopSong-Fullscreen-0.41-signed-preview.apk
+          unzip -t dist/FM1-Sampler-LoopSong-Fullscreen-0.41-signed-preview.apk | tail -n 1
+          sha256sum dist/FM1-Sampler-LoopSong-Fullscreen-0.41-signed-preview.apk
       - name: Upload pinned-certificate APK as test-only artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FM1-Sampler-0.40-16Track-Signed-Test
-          path: dist/FM1-Sampler-16Track-Metronome-0.40-signed-test.apk
+          name: FM1-Sampler-0.41-LoopSong-Signed-Preview
+          path: dist/FM1-Sampler-LoopSong-Fullscreen-0.41-signed-preview.apk
           if-no-files-found: error
 
       - name: Publish signed 0.40 preview as a GitHub pre-release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v0.40-metronome-preview.1
+          TAG: v0.41-loopsong-preview.1
         run: |
           set -euo pipefail
-          apk=dist/FM1-Sampler-16Track-Metronome-0.40-signed-test.apk
+          apk=dist/FM1-Sampler-LoopSong-Fullscreen-0.41-signed-preview.apk
           test -s "$apk"
-          test -s docs/RELEASE_NOTES_040.md
+          test -s docs/RELEASE_NOTES_041.md
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "$apk" --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file docs/RELEASE_NOTES_040.md --title "FM1 Sampler 0.40.0 — 16 tracks and FM-1 metronome (Preview)" --prerelease
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file docs/RELEASE_NOTES_041.md --title "FM1 Sampler 0.41.0 — Full-screen LOOP and SONG (Android Preview)" --prerelease
           else
-            gh release create "$TAG" "$apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "FM1 Sampler 0.40.0 — 16 tracks and FM-1 metronome (Preview)" --notes-file docs/RELEASE_NOTES_040.md --prerelease
+            gh release create "$TAG" "$apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "FM1 Sampler 0.41.0 — Full-screen LOOP and SONG (Android Preview)" --notes-file docs/RELEASE_NOTES_041.md --prerelease
           fi
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,assets,isPrerelease --jq '{url: .url, isPrerelease: .isPrerelease, files: [.assets[].name]}'
