@@ -1281,7 +1281,7 @@ void SamplerUI::projectSheet() {
     const bool saveArmed = saved && sceneArmedSlot_ == slot && now_ < sceneSaveAt_;
     const bool delArmed = saved && deleteArmedSlot_ == slot && now_ < sceneDeleteAt_;
     const float aw = (w - 12) / 4;
-    button({x, Y(178), aw, H(25)},
+    button({x, Y(176), aw, H(24)},
            saveArmed ? "CONFIRM SAVE" : saved ? "REPLACE" : "SAVE SCENE",
            saveArmed, [this, saved, saveArmed, slot] {
                if (saved && !saveArmed) {
@@ -1291,11 +1291,11 @@ void SamplerUI::projectSheet() {
                    app_.saveScene(); sceneSaveAt_ = 0;
                }
            }, 10);
-    button({x + aw + 4, Y(178), aw, H(25)}, "LAUNCH", false,
+    button({x + aw + 4, Y(176), aw, H(24)}, "LAUNCH", false,
            [this, slot] { app_.setSongMode(false); app_.selectScene(slot, true); }, 10);
-    button({x + 2 * (aw + 4), Y(163), aw, H(29)}, "EXIT", false,
+    button({x + 2 * (aw + 4), Y(176), aw, H(24)}, "EXIT", false,
            [this] { app_.exitPerformanceMode(); projectOpen_ = false; editor_ = false; }, 10);
-    button({x + 3 * (aw + 4), Y(163), aw, H(29)},
+    button({x + 3 * (aw + 4), Y(176), aw, H(24)},
            delArmed ? "CONFIRM DEL" : "DELETE", delArmed,
            [this, saved, delArmed, slot] {
                if (!saved) return;
