@@ -716,20 +716,39 @@ void SamplerUI::deck(Rect r) {
     tap({mx - 32, 156, 64, 56}, [this] { openLibrary(); });
     icon(7, mx, 248, projectOpen_ ? kOrange : kPaper); tap({mx - 32, 220, 64, 56}, [this] { projectOpen_ = true; });
     // the sample of this track, its page and the four knobs of the page
-    sampleView({x0, 14, w0, 118});
-    // New modes sit on the same HOME screen, without replacing its tape/editor.
-    button({x0 + 6, 260, 121, 27}, "SEQUENCER", false,
-           [this] { app_.enterSequencer(); sheetOpen_ = false; }, 10, true);
-    button({x0 + 135, 260, 99, 27}, "TEMPO / PITCH", tempoOpen_,
-           [this] { tempoOpen_ = true; }, 9);
-    text(zr - 5, 274, 10, kOrange, num("%.0f BPM", st_.bpm), 2, true);
+    if (app_.metronomeSelected()) {
+        rrect({x0, 14, w0, 118}, R_CARD, SURFACE);
+        stroke({x0, 14, w0, 118}, R_CARD, OUTLINE, 1);
+        text(x0 + 14, 46, 19, ACCENT, "METRONOME", 0, true);
+        text(x0 + 14, 73, 12, TEXT,
+             std::to_string(st_.metroBeats) + "/4   " + num("%.0f BPM", st_.bpm), 0, true);
+        text(x0 + 14, 99, 10, DIM,
+             st_.metroMode >= 3 ? "FM-1 JACK MONITOR - PHONE MAIN MIX" :
+             st_.metroMode == 2 ? "CLICK OFF" : "CLICK TO MAIN MIX", 0);
+        button({x0 + 6, 260, 124, 27}, "TEMPO / PITCH",
+               app_.page() == SamplerApp::P_METRO_TEMPO,
+               [this] { app_.gotoPage(SamplerApp::P_METRO_TEMPO); }, 9, true);
+        button({x0 + 140, 260, 124, 27}, "METER / CLICK",
+               app_.page() == SamplerApp::P_METRO_SETTINGS,
+               [this] { app_.gotoPage(SamplerApp::P_METRO_SETTINGS); }, 9, true);
+        text(zr - 5, 274, 10, kOrange, "MON", 2, true);
+    } else {
+        sampleView({x0, 14, w0, 118});
+        // New modes sit on HOME without replacing its tape/editor.
+        button({x0 + 6, 260, 121, 27}, "SEQUENCER", false,
+               [this] { app_.enterSequencer(); sheetOpen_ = false; }, 10, true);
+        button({x0 + 135, 260, 99, 27}, "TEMPO / PITCH", tempoOpen_,
+               [this] { tempoOpen_ = true; }, 9);
+        text(zr - 5, 274, 10, kOrange, num("%.0f BPM", st_.bpm), 2, true);
+    }
     const float py = 163;
     text(x0, py, 15, kOrange, SamplerApp::pageName(app_.page()), 0, true);
-    for (int i = 0; i < 11; i++) {   // all pages, including CUE, stay accessible from the phone
-        Rect nr{zr - (11 - i) * 19.f, py - 14, 19, 28};
-        rrect({nr.x + 2, py - 2, 15, 4}, 0, kTabs[i] == app_.page() ? kOrange : kLine);
-        tap(nr, [this, i] { app_.gotoPage(kTabs[i]); });
-    }
+    if (!app_.metronomeSelected())
+        for (int i = 0; i < 11; i++) {   // every sample page remains accessible
+            Rect nr{zr - (11 - i) * 19.f, py - 14, 19, 28};
+            rrect({nr.x + 2, py - 2, 15, 4}, 0, kTabs[i] == app_.page() ? kOrange : kLine);
+            tap(nr, [this, i] { app_.gotoPage(kTabs[i]); });
+        }
     for (int i = 0; i < 4; i++) knob(x0 + 49 + i * 100, 220, app_.page(), i);
     timeline({M, 288, W_ - 2 * M, H_ - 288 - 8});
 }
