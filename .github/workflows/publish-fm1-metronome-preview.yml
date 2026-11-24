@@ -9,6 +9,7 @@ on:
       - 'android/app/src/main/cpp/**'
       - 'android/app/src/test/java/**'
       - 'engine/**'
+      - '.github/workflows/publish-fm1-metronome-preview.yml'
       - 'firmware/app/ctrl.c'
       - 'firmware/hosttest/ctrl_host.c'
   workflow_dispatch:
@@ -135,6 +136,8 @@ jobs:
           set -euo pipefail
           info=$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging android/app/build/outputs/apk/debug/app-debug.apk | head -n 1)
           version=$(printf '%s\n' "$info" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          # Scenes uses a fixed Gradle versionNameSuffix; release tags use the base version.
+          version="${version%-scenes-test}"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           mkdir -p dist
           apk="dist/FM1-Sampler-$version-signed.apk"
