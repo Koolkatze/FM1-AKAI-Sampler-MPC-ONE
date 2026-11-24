@@ -296,8 +296,8 @@ struct Session::Impl {
     std::atomic<uint32_t> a_sceneMask{0};
     std::atomic<bool> a_compositionValid{false};
     std::atomic<int32_t> a_compositionSamples{0};
-    std::atomic<uint8_t> a_compositionTracks{0};
-    std::atomic<uint8_t> a_sceneTracks[Session::kScenes];
+    std::atomic<uint16_t> a_compositionTracks{0};
+    std::atomic<uint16_t> a_sceneTracks[Session::kScenes];
     std::atomic<uint8_t> a_sceneSequencers[Session::kScenes];
     std::atomic<int> a_activeScene{-1}, a_queuedScene{-1}, a_songStep{-1}, a_songSize{0};
     std::atomic<bool> a_songPlaying{false}, a_arrangementLoaded{false};
@@ -339,9 +339,9 @@ struct Session::Impl {
     void updateSceneMask() {
         uint32_t mask = 0;
         for (int i = 0; i < Session::kScenes; ++i) {
-            uint8_t tracks = 0;
+            uint16_t tracks = 0;
             for (int t = 0; t < kTracks; ++t)
-                if (scenes[(size_t)i].has[(size_t)t]) tracks |= (uint8_t)(1u << t);
+                if (scenes[(size_t)i].has[(size_t)t]) tracks |= (uint16_t)(1u << t);
             a_sceneTracks[(size_t)i].store(tracks);
             a_sceneSequencers[(size_t)i].store(scenes[(size_t)i].seqScene);
             if (scenes[(size_t)i].filled) mask |= 1u << i;
@@ -515,9 +515,9 @@ struct Session::Impl {
             composition.has[(size_t)i] = t.clipHas;
             composition.rec[(size_t)i] = t.clipRec;
         }
-        uint8_t mask = 0;
+        uint16_t mask = 0;
         for (int i = 0; i < kTracks; ++i)
-            if (composition.has[(size_t)i]) mask |= (uint8_t)(1u << i);
+            if (composition.has[(size_t)i]) mask |= (uint16_t)(1u << i);
         a_compositionTracks = mask;
         a_compositionSamples = composition.samples;
         a_compositionValid = true;
@@ -655,10 +655,10 @@ struct Session::Impl {
             composition.clips = std::move(s.compose.clips);
             composition.has = s.compose.has;
         }
-        uint8_t composeTracks = 0;
+        uint16_t composeTracks = 0;
         for (int i = 0; i < kTracks; ++i)
             if (composition.valid && composition.has[(size_t)i])
-                composeTracks |= (uint8_t)(1u << i);
+                composeTracks |= (uint16_t)(1u << i);
         a_compositionTracks = composeTracks;
         a_compositionSamples = composition.valid ? composition.samples : 0;
         a_compositionValid = composition.valid;
@@ -695,7 +695,7 @@ struct Session::Impl {
             std::ofstream out(temp, std::ios::binary | std::ios::trunc);
             if (!out) return;
             auto put = [&](const auto& value) { out.write(reinterpret_cast<const char*>(&value), sizeof(value)); };
-            const uint32_t magic = 0x324E4353; // SCN2: adds sequencer scene source per LOOP scene
+            const uint32_t magic = 0x334E4353; // SCN3: sixteen clips + sequencer scene; reads SCN1/SCN2
             const uint32_t rate = (uint32_t)sampleRate;
             put(magic); put(rate);
             for (const auto& sc : copy) {
@@ -735,16 +735,17 @@ struct Session::Impl {
             std::vector<int> order;
             std::ifstream in(path, std::ios::binary);
             bool ok = (bool)in;
-            bool scnV2 = false;
+            bool scnV2 = false, scnV3 = false;
             auto get = [&](auto& value) {
                 in.read(reinterpret_cast<char*>(&value), sizeof(value));
                 if (!in) ok = false;
             };
             if (ok) {
                 uint32_t magic = 0, rate = 0; get(magic); get(rate);
-                if ((magic != 0x314E4353 && magic != 0x324E4353) || rate != (uint32_t)sampleRate) ok = false;
-                // Old SCN1 scene banks are still readable.
-                scnV2 = magic == 0x324E4353;
+                if ((magic != 0x314E4353 && magic != 0x324E4353 && magic != 0x334E4353) || rate != (uint32_t)sampleRate) ok = false;
+                // SCN1/SCN2 contain eight clips; never overread their arrangement.
+                scnV3 = magic == 0x334E4353;
+                scnV2 = magic == 0x324E4353 || scnV3;
             }
             size_t totalFloats = 0;
             for (int i = 0; ok && i < Session::kScenes; ++i) {
@@ -757,7 +758,7 @@ struct Session::Impl {
                 if (sc.samples <= 0 || sc.samples > sampleRate * 180 ||
                     sc.tempo < 30.f || sc.tempo > 300.f ||
                     sc.bars < 1 || sc.bars > 32) { ok = false; break; }
-                for (int t = 0; ok && t < kTracks; ++t) {
+                for (int t = 0; ok && t < (scnV3 ? kTracks : 8); ++t) {
                     uint8_t has = 0; get(has);
                     if (!has) continue;
                     const size_t n = (size_t)sc.samples * 2;
@@ -1571,7 +1572,7 @@ void Session::setCue(bool on, int division) {
         }
     });
 }
-void Session::captureScene(int slot, uint8_t tracks, int sequencerScene) {
+void Session::captureScene(int slot, uint16_t tracks, int sequencerScene) {
     if (slot < 0 || slot >= kScenes || sequencerScene < -1 || sequencerScene >= kSeqScenes) return;
     d->post([this, slot, tracks, sequencerScene] {
         if ((!tracks && sequencerScene < 0) || d->freeArmed || d->freeRec) return;
@@ -2117,7 +2118,7 @@ int Session::loopPeaks(int track, float* out, int maxBins) const {
 // Snapshots are captured at one audio callback and written asynchronously.
 namespace {
 constexpr uint32_t kProjectMagic = 0x32504d46;  // FMP2
-constexpr uint32_t kProjectVersion = 4; // 4 stores LOOP -> sequencer scene mapping; 2/3 readable
+constexpr uint32_t kProjectVersion = 5; // 5: 16 looper tracks; v2/3/4 remain readable
 constexpr uint64_t kProjectMaxBytes = 536870912ULL; // 512 MiB decompressed
 constexpr uint32_t kSampleMax = 67108864U; // 64 MiB per WAV
 std::string projectPath(const std::string& dir, int slot) {
@@ -2176,7 +2177,7 @@ bool writeTimeline(ProjectWrite& w, const Session::Impl::ProjectTimeline& t) {
     }
     return true;
 }
-bool readTimeline(ProjectRead& r, Session::Impl::ProjectTimeline& t, int sr) {
+bool readTimeline(ProjectRead& r, Session::Impl::ProjectTimeline& t, int sr, int trackCount) {
     uint8_t playing = 0, stopping = 0;
     if (!r.value(t.samples) || !r.value(t.bars) || !r.value(t.tempo) ||
         !r.value(t.pos) || !r.value(t.tapePos) || !r.value(t.rate) ||
@@ -2184,7 +2185,7 @@ bool readTimeline(ProjectRead& r, Session::Impl::ProjectTimeline& t, int sr) {
         !validTimeline(t.samples, t.bars, t.tempo, t.pos, t.tapePos, t.rate, sr) ||
         playing > 1 || stopping > 1) return false;
     t.playing = playing; t.stopping = stopping;
-    for (int i = 0; i < Session::kTracks; ++i) {
+    for (int i = 0; i < trackCount; ++i) {
         uint8_t has = 0;
         if (!r.value(has) || has > 1 || (has && t.samples <= 0)) return false;
         t.has[(size_t)i] = has != 0;
@@ -2304,11 +2305,12 @@ bool readProjectFile(const std::string& file, Session::Impl::ProjectSnapshot& sn
     ProjectRead r(file);
     uint32_t magic = 0, ver = 0, rate = 0, metaLen = 0;
     if (!r.value(magic) || !r.value(ver) || !r.value(rate) || !r.value(metaLen) ||
-        magic != kProjectMagic || (ver != 2 && ver != 3 && ver != kProjectVersion) ||
+        magic != kProjectMagic || (ver != 2 && ver != 3 && ver != 4 && ver != kProjectVersion) ||
         rate != (uint32_t)sr || metaLen == 0 || metaLen > 65536) return false;
     snap.appState.resize(metaLen);
     if (!r.get(snap.appState.data(), metaLen)) return false;
-    for (auto& asset : assets) {
+    for (int t = 0; t < (ver >= 5 ? Session::kTracks : 8); ++t) {
+        auto& asset = assets[(size_t)t];
         uint32_t len = 0;
         if (!r.value(len) || len > kSampleMax) return false;
         asset.resize(len);
@@ -2322,11 +2324,11 @@ bool readProjectFile(const std::string& file, Session::Impl::ProjectSnapshot& sn
             if (len && !r.get(asset.data(), len)) return false;
         }
     }
-    if (!readTimeline(r, snap.current, sr)) return false;
+    if (!readTimeline(r, snap.current, sr, ver >= 5 ? Session::kTracks : 8)) return false;
     uint8_t compose = 0;
     if (!r.value(compose) || compose > 1) return false;
     snap.hasCompose = compose;
-    if (compose && !readTimeline(r, snap.compose, sr)) return false;
+    if (compose && !readTimeline(r, snap.compose, sr, ver >= 5 ? Session::kTracks : 8)) return false;
     for (auto& scene : snap.savedScenes) {
         uint8_t filled = 0;
         if (!r.value(filled) || filled > 1) return false;
@@ -2337,7 +2339,7 @@ bool readProjectFile(const std::string& file, Session::Impl::ProjectSnapshot& sn
             scene.samples <= 0 || scene.samples > sr * 180 || scene.bars < 1 ||
             scene.bars > 32 || !std::isfinite(scene.tempo) ||
             scene.tempo < 30.f || scene.tempo > 300.f) return false;
-        for (int t = 0; t < Session::kTracks; ++t) {
+        for (int t = 0; t < (ver >= 5 ? Session::kTracks : 8); ++t) {
             uint8_t has = 0;
             if (!r.value(has) || has > 1) return false;
             scene.has[(size_t)t] = has;
