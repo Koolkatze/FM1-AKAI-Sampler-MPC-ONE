@@ -741,12 +741,11 @@ int main() {
                 if (loaded.arrangementLoaded) break;
                 std::this_thread::sleep_for(std::chrono::milliseconds(4));
             }
-            CHECK(loaded.arrangementLoaded && (loaded.sceneMask & 5u) == 5u &&
-                  loaded.sceneTracks[0] == 1u && (loaded.sceneTracks[2] & 3u) == 3u &&
-                  loaded.sceneSequencers[2] == 2 &&
-                  loaded.arrangementSize == 3 && loaded.arrangement[0] == 0 &&
-                  loaded.arrangement[1] == 2 && loaded.arrangement[2] == 0,
-                  "saved C1/D1 loop packs and the C1-D1-C1 song survive app restart");
+            CHECK(loaded.sceneMask == 0 && loaded.arrangementSize == 0 &&
+                  !loaded.songPlaying && !loaded.compositionValid,
+                  "new app session starts with EMPTY LOOP pads and SONG, even if legacy scenes file exists");
+            CHECK(std::filesystem::exists("/tmp/fm1sampler_t2/fm1_scenes.dat"),
+                  "legacy scene backup is not deleted when new project-only behavior starts");
         }
 
         // Project sheet must render two separate columns in both existing themes.
@@ -791,62 +790,123 @@ int main() {
         ui.touch(0, 297, 69, now + 4);
         ui.touch(2, 297, 69, now + 4);
         CHECK(ui.shortcutHelpVisible(), "INFO chip reopens physical shortcuts");
+        // Full-screen PROJECT menu is separate from the full-screen
+        // LOOP/SONG editor. No dual-column overlay or tiny scene controls.
         ui.openProject(true);
         for (bool light : {true, false}) {
             theme::apply(light);
             ui.frame(now + (light ? 1 : 2));
-            bool project = false, song = false, pad = false;
+            bool project = false, entry = false, songEditor = false, slots = false;
             for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
                 project |= op.text == "PROJECT";
-                song |= op.text == "SONG MODE";
-                pad |= op.text == "C1";
+                entry |= op.text == "LOOP / SONG MODE";
+                slots |= op.text == "SAVE PROJECT";
+                songEditor |= op.text == "SONG ORDER";
             }
-            CHECK(project && song && pad,
-                  "PROJECT and scene/song editor render together in %s theme",
-                  light ? "light" : "dark");
+            CHECK(project && entry && slots && !songEditor,
+                  "%s PROJECT menu has large LOOP/SONG entry, not overlapping editor",
+                  light ? "LIGHT" : "DARK");
+            ui.touch(0, 740.f, 76.f, now + 3);
+            ui.touch(2, 740.f, 76.f, now + 3);
+            ui.frame(now + 4);
+            int tracks = 0, seqButtons = 0, pads = 0;
+            bool loopScene = false, songScene = false, songOrder = false;
+            for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
+                if (op.text.size() >= 2 && op.text[0] == 'T' &&
+                    op.text[1] >= '1' && op.text[1] <= '9' &&
+                    op.text.size() <= 3) ++tracks;
+                if (op.text.rfind("SC ", 0) == 0 && op.text.size() <= 4) ++seqButtons;
+                pads += op.text == "C1" || op.text == "D1";
+                loopScene |= op.text.find("SEQUENCER SCENE") != std::string::npos;
+                songScene |= op.text == "SONG MODE";
+                songOrder |= op.text == "SONG ORDER";
+            }
+            CHECK(tracks == 16 && seqButtons == 8 && pads >= 2 &&
+                  loopScene && songScene && !songOrder,
+                  "%s LOOP fills whole view with 12 pads, 16 tracks, 8 direct SEQ scenes",
+                  light ? "LIGHT" : "DARK");
+            // Direct sequencer selector: OFF, SC 1, SC 2 at x=58,151,244;
+            // SC 2 selects the complete sequencer scene index 1.
+            ui.touch(0, 243.f, 312.f, now + 5);
+            ui.touch(2, 243.f, 312.f, now + 5);
+            CHECK(app.loopSequencerScene() == 1,
+                  "%s SC 2 button selects sequencer scene 2 for LOOP pad",
+                  light ? "LIGHT" : "DARK");
+            ui.touch(0, 58.f, 312.f, now + 6);
+            ui.touch(2, 58.f, 312.f, now + 6);
+            CHECK(app.loopSequencerScene() == -1,
+                  "%s OFF button detaches sequencer scene without changing looper tracks",
+                  light ? "LIGHT" : "DARK");
+            // Switching SONG replaces the LOOP parameter grid, not overlays it.
+            ui.touch(0, 425.f, 28.f, now + 7);
+            ui.touch(2, 425.f, 28.f, now + 7);
+            ui.frame(now + 8);
+            bool songControls = false, seqStillVisible = false;
+            for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
+                songControls |= op.text == "+ ADD PAD";
+                seqStillVisible |= op.text == "SC 1";
+            }
+            CHECK(songControls && !seqStillVisible && app.songMode(),
+                  "%s SONG has its own spacious arrangement page without LOOP grid",
+                  light ? "LIGHT" : "DARK");
+            // PROJECT returns to the menu without clearing saved content.
+            ui.touch(0, 55.f, 26.f, now + 9);
+            ui.touch(2, 55.f, 26.f, now + 9);
+            ui.frame(now + 10);
+            bool returned = false, songHidden = true;
+            for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
+                returned |= op.text == "LOOP / SONG MODE";
+                if (op.text == "+ ADD PAD") songHidden = false;
+            }
+            CHECK(returned && songHidden,
+                  "%s PROJECT button returns from performance page to menu",
+                  light ? "LIGHT" : "DARK");
         }
         theme::apply(true);
-        // A narrower screen must switch between project and scene columns
-        // rather than draw both on top of each other.
+        // Narrow landscape must still show one full-screen editor, never
+        // squeezed side-by-side project and LOOP/SONG columns.
         ui.setSize(640.f, 400.f, 0.f, 0.f);
-        ui.frame(now + 3);
-        bool narrowProject = false, narrowSong = false;
+        ui.frame(now + 11);
+        bool narrowEntry = false, narrowScene = false;
         for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
-            narrowProject |= op.text == "PROJECT"; narrowSong |= op.text == "SONG MODE";
+            narrowEntry |= op.text == "LOOP / SONG MODE";
+            narrowScene |= op.text == "SONG ORDER";
         }
-        CHECK(narrowProject && !narrowSong, "narrow screen shows PROJECT alone");
-        ui.touch(0, 380, 32, now + 3); ui.touch(2, 380, 32, now + 3);
-        ui.frame(now + 4);
-        narrowProject = narrowSong = false;
+        CHECK(narrowEntry && !narrowScene, "narrow PROJECT menu is not overlaid by SONG");
+        ui.touch(0, 552.f, 76.f, now + 12); ui.touch(2, 552.f, 76.f, now + 12);
+        ui.frame(now + 13);
+        bool narrowLoop = false, narrowPads = false;
         for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
-            narrowProject |= op.text == "PROJECT"; narrowSong |= op.text == "SONG MODE";
+            narrowLoop |= op.text == "SEQUENCER SCENE  /  ONE PATTERN PER PAD";
+            narrowPads |= op.text == "C1";
         }
-        CHECK(narrowSong, "narrow screen switches to scene/song column");
+        CHECK(narrowLoop && narrowPads, "narrow LOOP editor also uses entire screen");
+        app.exitPerformanceMode();
         app.setSongMode(false);
-        CHECK(app.performanceActive() && !app.songMode(),
-              "LOOP mode enables scene-key bank");
+        CHECK(app.performanceActive() && !app.songMode(), "LOOP mode enables scene-key bank");
         app.exitPerformanceMode(); run(0.08);
-        CHECK(!app.performanceActive() && !app.songMode(),
-              "EXIT LOOP returns to normal composition and chromatic keyboard");
+        CHECK(!app.performanceActive() && !app.songMode(), "EXIT LOOP restores composition");
         app.setSongMode(true); run(0.08);
         CHECK(app.performanceActive() && app.songMode(), "SONG mode enters successfully");
         app.exitPerformanceMode(); run(0.08);
-        CHECK(!app.performanceActive() && !app.songMode(),
-              "EXIT SONG returns to composition");
-        // Verify touchable EXIT beside LAUNCH in the actual PROJECT right panel.
+        CHECK(!app.performanceActive() && !app.songMode(), "EXIT SONG restores composition");
+
+        // The EXIT LOOP button stays touchable at its new full-screen location.
         ui.setSize(860.f, 400.f, 0.f, 0.f);
         ui.openProject(true);
-        app.setSongMode(false); ui.frame(now + 7);
+        ui.frame(now + 14);
+        ui.touch(0, 740.f, 76.f, now + 14); ui.touch(2, 740.f, 76.f, now + 14);
+        app.setSongMode(false);
+        ui.frame(now + 15);
         bool exitVisible = false, composeVisible = false;
         for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
-            exitVisible |= op.text == "EXIT";
+            exitVisible |= op.text == "EXIT LOOP";
             composeVisible |= op.text == "COMPOSE";
         }
-        CHECK(exitVisible && composeVisible, "PROJECT shows EXIT beside LAUNCH and COMPOSE mode tab");
-        // Right column x=445..846; four actions at y~221, EXIT is third.
-        ui.touch(0, 701.f, 224.f, now + 7);
-        ui.touch(2, 701.f, 224.f, now + 7);
-        CHECK(!app.performanceActive(), "PROJECT EXIT button actually leaves LOOP mode");
+        CHECK(exitVisible && composeVisible, "full-screen LOOP has accessible EXIT and COMPOSE controls");
+        ui.touch(0, 535.f, 365.f, now + 16);
+        ui.touch(2, 535.f, 365.f, now + 16);
+        CHECK(!app.performanceActive(), "EXIT LOOP actually leaves LOOP performance mode");
 
         // FULL PROJECT FILES: eight independent slots, not merely the legacy
         // fm1_scenes.dat bank. Save must include the actual two COMPOSE clips,
@@ -1329,7 +1389,7 @@ int main() {
         click(351.f, 248.f);
         CHECK(hasText("SAVE PROJECT") && hasText("LOAD PROJECT") &&
               hasText("EXPORT ALL LOOPS"), "PROJECT retains saving and exporting actions");
-        click(351.f, 67.f);
+        click(530.f, 76.f); // EXPORT ALL LOOPS in full-width PROJECT menu
         CHECK(app.wantLoopExport() && !app.wantLoopExport(),
               "EXPORT ALL LOOPS still requests Android's public download export");
     }
