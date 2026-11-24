@@ -340,7 +340,7 @@ void SamplerUI::pageView(Rect r) {
         break; }
     case P::P_LEN: {   // the loop as bars: one block per bar with its beats, the orange playhead
         const int bars = std::max(1, st_.loopBars), shown = std::min(bars, 16);
-        head = bars > 0 && st_.loopSamples > 0 ? std::to_string(bars) + (bars == 1 ? " BAR  " : " BARS  ") + num("%.0f BPM", st_.bpm) : "NO LOOP";
+        head = bars > 0 && st_.loopSamples > 0 ? std::to_string(bars) + (bars == 1 ? " BAR  " : " BARS  ") + num("%.0f BPM", app_.correctedTempoBpm()) : "NO LOOP";
         const float gap = 4, bw = (w.w - gap * (shown - 1)) / shown, bh = 44;
         for (int b = 0; b < shown; b++) {
             const float x = w.x + b * (bw + gap);
@@ -702,7 +702,7 @@ void SamplerUI::deck(Rect r) {
     // Show the active project BPM on the lower-left of the tape illustration
     // in BOTH info states. The reels end above it; do not put BPM beside the
     // sample knobs or over the bottom waveform/timeline.
-    text(M, 222, 11, kOrange, num("%.0f BPM", st_.bpm), 0, true);
+    text(M, 222, 11, kOrange, num("%.0f BPM", app_.correctedTempoBpm()), 0, true);
     // transport: play, stop, record / overdub, clear the loop of this track; the active one is orange and underlined
     const float ty = 248;
     for (int i = 0; i < 4; i++) {
@@ -764,14 +764,14 @@ void SamplerUI::deck(Rect r) {
         // Use precisely the same 19x28 touch targets and 15x4 page markers
         // as ordinary sample tracks, in the same right-aligned position.
         const SamplerApp::Page metroTabs[] = {
-            SamplerApp::P_METRO_TEMPO, SamplerApp::P_METRO_SETTINGS
+            SamplerApp::P_METRO_TEMPO, SamplerApp::P_METRO_SETTINGS, SamplerApp::P_METRO_CORRECT
         };
-        for (int i = 0; i < 2; ++i) {
-            Rect nr{zr - (2 - i) * 19.f, py - 14, 19, 28};
+        for (int i = 0; i < 3; ++i) {
+            Rect nr{zr - (3 - i) * 19.f, py - 14, 19, 28};
             rrect({nr.x + 2, py - 2, 15, 4}, 0,
                   metroTabs[i] == app_.page() ? kOrange : kLine);
             tap(nr, [this, i] {
-                app_.gotoPage(i == 0 ? SamplerApp::P_METRO_TEMPO : SamplerApp::P_METRO_SETTINGS);
+                app_.gotoPage(i == 0 ? SamplerApp::P_METRO_TEMPO : i == 1 ? SamplerApp::P_METRO_SETTINGS : SamplerApp::P_METRO_CORRECT);
             });
         }
     } else {
@@ -781,7 +781,14 @@ void SamplerUI::deck(Rect r) {
             tap(nr, [this, i] { app_.gotoPage(kTabs[i]); });
         }
     }
-    for (int i = 0; i < 4; i++) knob(x0 + 49 + i * 100, 220, app_.page(), i);
+    if (app_.metronomeSelected() && app_.page() == SamplerApp::P_METRO_CORRECT) {
+        const float cell = w0 / 4.f;
+        knob(x0 + cell * .5f, 220, app_.page(), 0);
+        button({x0 + cell + 4, 189, cell * 2.f - 8, 85}, "TAP TEMPO", false,
+               [this] { app_.tapTempo(now_); }, 18, true);
+    } else {
+        for (int i = 0; i < 4; i++) knob(x0 + 49 + i * 100, 220, app_.page(), i);
+    }
     timeline({M, 288, W_ - 2 * M, H_ - 288 - 8});
 }
 
@@ -808,7 +815,7 @@ void SamplerUI::sequencerView() {
                [this] { app_.selectSequencerScene(app_.sequencerScene() + 1); }, 12);
     }
     text(W_ - 16, 25, 16, st_.flexProcessing ? ACCENT : TEXT,
-         "SEQUENCER  " + num("%.0f BPM", st_.bpm) + (st_.flexProcessing ? "  FLEX..." : ""), 2, true);
+         "SEQUENCER  " + num("%.0f BPM", app_.correctedTempoBpm()) + (st_.flexProcessing ? "  FLEX..." : ""), 2, true);
 
     const float x0 = 198.f, right = W_ - 14.f;
     const float gridW = std::max(150.f, right - x0);
@@ -1024,14 +1031,14 @@ void SamplerUI::pagePanel(Rect r) {
         // The editor uses the same compact controls as every other track,
         // but only the two pages belonging to MET are available.
         const SamplerApp::Page metroTabs[] = {
-            SamplerApp::P_METRO_TEMPO, SamplerApp::P_METRO_SETTINGS
+            SamplerApp::P_METRO_TEMPO, SamplerApp::P_METRO_SETTINGS, SamplerApp::P_METRO_CORRECT
         };
-        const char* metroNames[] = {"TEMPO", "CLICK"};
-        for (int i = 0; i < 2; ++i) {
+        const char* metroNames[] = {"TEMPO", "CLICK", "CORRECT TEMPO"};
+        for (int i = 0; i < 3; ++i) {
             Rect c{r.x + i * (tw + 4), r.y, tw, 28};
             button(c, metroNames[i], app_.page() == metroTabs[i],
                    [this, i] {
-                       app_.gotoPage(i == 0 ? SamplerApp::P_METRO_TEMPO : SamplerApp::P_METRO_SETTINGS);
+                       app_.gotoPage(i == 0 ? SamplerApp::P_METRO_TEMPO : i == 1 ? SamplerApp::P_METRO_SETTINGS : SamplerApp::P_METRO_CORRECT);
                    }, 9.5f);
         }
     } else {
@@ -1039,6 +1046,13 @@ void SamplerUI::pagePanel(Rect r) {
             Rect c{r.x + (i % 5) * (tw + 4), r.y + (i / 5) * 32, tw, 28};
             button(c, kTabName[i], app_.page() == kTabs[i], [this, i] { app_.gotoPage(kTabs[i]); }, 9.5f);
         }
+    }
+    if (app_.metronomeSelected() && app_.page() == SamplerApp::P_METRO_CORRECT) {
+        const float cy = r.y + 80;
+        knob(r.x + r.w * .20f, cy, app_.page(), 0);
+        button({r.x + r.w * .40f, cy - 30, r.w * .57f, 75}, "TAP TEMPO", false,
+               [this] { app_.tapTempo(now_); }, 15, true);
+        return;
     }
     auto k = app_.knobs();
     const float top = r.y + 104, rh = (r.h - 104) / 4;

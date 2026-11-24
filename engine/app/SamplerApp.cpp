@@ -19,7 +19,7 @@ void setPalette(bool light) {
     if (light) { BLACK = rgb(241, 239, 233); PAPER = rgb(17, 17, 17); DIM = rgb(154, 150, 140); BAR = rgb(214, 211, 201); ACCENT = rgb(255, 90, 10); }
     else { BLACK = rgb(0, 0, 0); PAPER = rgb(255, 255, 255); DIM = rgb(106, 106, 106); BAR = rgb(42, 42, 42); ACCENT = rgb(255, 106, 31); }
 }
-const char* kPage[] = {"SAMPLE", "FX", "ENVELOPE", "LFO", "ARP", "TAPE", "MIXER", "KEY", "LOOP", "LENGTH", "NOTE REPEAT", "SEQUENCER", "TEMPO / PITCH", "METRO TEMPO", "METRO SETTINGS"};
+const char* kPage[] = {"SAMPLE", "FX", "ENVELOPE", "LFO", "ARP", "TAPE", "MIXER", "KEY", "LOOP", "LENGTH", "NOTE REPEAT", "SEQUENCER", "TEMPO / PITCH", "METRO TEMPO", "METRO SETTINGS", "CORRECT TEMPO"};
 const char* kAlgo[] = {"MELODIC", "ONE-SHOT", "LOOPED", "KIT/SLICE", "GRANULAR", "PAULSTRETCH"};
 const char* kScaleName[] = {"CHROM", "MIX", "MAJ", "MIN", "HMIN", "PHRYG", "MIN+", "OFF"};
 const char* kNote[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
@@ -156,6 +156,29 @@ void SamplerApp::sequencerSetStepNote(int step, int note) {
     hit.note = (uint8_t)std::max(0, std::min(127, note));
     seqScenes_[(size_t)seqScene_].grid[(size_t)seqTrack_][(size_t)step] = hit;
     s_.setSequencerStep(seqTrack_, step, hit.velocity, hit.note);
+}
+void SamplerApp::applyCorrectTempo(float bpm) {
+    if (!std::isfinite(bpm)) return;
+    tempoCorrection_ = cl(bpm, 30.f, 300.f) / std::max(1.f, tempoFlexBpm_ * pitchedTempo_);
+    s_.setTempoCorrection(tempoCorrection_);
+}
+void SamplerApp::setCorrectTempoBpm(float bpm) {
+    haveTempoTap_ = false; tempoTapIntervals_.clear();
+    applyCorrectTempo(bpm);
+}
+void SamplerApp::tapTempo(uint32_t now) {
+    if (!haveTempoTap_ || now - lastTempoTap_ > 2000) {
+        haveTempoTap_ = true; lastTempoTap_ = now; tempoTapIntervals_.clear();
+        return;
+    }
+    const uint32_t dt = now - lastTempoTap_;
+    if (dt < 200) return; // ignore accidental double taps
+    lastTempoTap_ = now;
+    tempoTapIntervals_.push_back(dt);
+    if (tempoTapIntervals_.size() > 4) tempoTapIntervals_.pop_front();
+    double sum = 0.;
+    for (auto interval : tempoTapIntervals_) sum += interval;
+    applyCorrectTempo((float)(60000.0 * tempoTapIntervals_.size() / sum));
 }
 void SamplerApp::setTempoFlexBpm(float bpm) {
     tempoFlexBpm_ = std::max(30.f, std::min(300.f, bpm));
@@ -476,13 +499,13 @@ void SamplerApp::selectTrack(int t) {
     if (t < 0 || t >= kTracks) { selectMetronome(); return; }
     if (t == track_ && !metroSelected_) return;
     metroSelected_ = false;
-    if (page_ == P_METRO_TEMPO || page_ == P_METRO_SETTINGS) page_ = P_HOME;
+    if (page_ == P_METRO_TEMPO || page_ == P_METRO_SETTINGS || page_ == P_METRO_CORRECT) page_ = P_HOME;
     if (st_.track_clip_rec[track_]) s_.clipRecord(track_, false);   // an overdub belongs to the track it was started on
     track_ = t;
     if (ts_[t].entry >= 0) libCursor_ = ts_[t].entry;   // PRESETS starts from the sample this track plays
 }
 void SamplerApp::gotoPage(Page p) {
-    if (metroSelected_ && p != P_METRO_TEMPO && p != P_METRO_SETTINGS) { page_ = P_METRO_TEMPO; return; }
+    if (metroSelected_ && p != P_METRO_TEMPO && p != P_METRO_SETTINGS && p != P_METRO_CORRECT) { page_ = P_METRO_TEMPO; return; }
     if (p == P_STEP) { enterSequencer(); return; }
     sequencerMode_ = false;
     page_ = p;
@@ -610,11 +633,19 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
         k[0] = len;
         k[1] = act("DUPLICATE", "TURN: X2", true);
         k[2] = act("HALVE", "TURN: /2", false);
-        Knob b; b.name = "BARS / BPM"; b.valid = true; b.isChoice = true; b.value = fmt("%.0f", st_.loopBars) + " / " + fmt("%.0f", st_.bpm); b.step = [](int) {}; b.set = [](float) {};
+        Knob b; b.name = "BARS / BPM"; b.valid = true; b.isChoice = true; b.value = fmt("%.0f", st_.loopBars) + " / " + fmt("%.0f", st_.bpm * tempoCorrection_); b.step = [](int) {}; b.set = [](float) {};
         k[3] = b;
         break;
     }
     case P_METRO_TEMPO: return knobs(P_TEMPO);
+    case P_METRO_CORRECT: {
+        Knob& a = k[0];
+        a.name = "CORRECT BPM"; a.value = fmt("%.1f BPM", correctedTempoBpm());
+        a.norm = cl((correctedTempoBpm() - 30.f) / 270.f); a.valid = true;
+        a.step = [this](int d) { setCorrectTempoBpm(correctedTempoBpm() + (d > 0 ? .1f : -.1f)); };
+        a.set = [this](float v) { setCorrectTempoBpm(std::round((30.f + cl(v) * 270.f) * 10.f) / 10.f); };
+        break;
+    }
     case P_METRO_SETTINGS: {
         auto mk = [](const char* name, const std::string& value, float norm,
                      std::function<void(int)> step, std::function<void(float)> set) {
@@ -817,7 +848,7 @@ namespace {
 struct FullProjectSettings {
     uint32_t magic = 0x32505041;  // APP2
     // v4 adds independent sequencer and tempo fields without changing the v2/v3 prefix.
-    uint32_t version = 6, bytes = sizeof(FullProjectSettings);
+    uint32_t version = 7, bytes = sizeof(FullProjectSettings);
     std::array<SamplerApp::TrackState, 8> tracks{};
     SamplerApp::ScaleState scale{};
     float reverbSize = .7f, reverbWet = .35f, delayTime = .4f, delayFeedback = .45f;
@@ -849,6 +880,8 @@ struct FullProjectSettings {
     uint8_t metronomeSelected = 0, metronomeMode = 0;
     int32_t metronomeBeats = 4;
     float metronomeSwing = 0.f, metronomeVolume = .7f;
+    // v7: appended grid calibration, previous project layouts unchanged.
+    float tempoCorrection = 1.f;
 };
 static_assert(std::is_trivially_copyable_v<FullProjectSettings>);
 }
@@ -917,6 +950,7 @@ bool SamplerApp::saveFullProject(int slot) {
     m.seqEditedStep = seqEditStep_; m.sequencerMode = sequencerMode_;
     m.sequencerEnabled = 1;
     m.tempoBpm = tempoFlexBpm_; m.pitchedTempo = pitchedTempo_;
+    m.tempoCorrection = tempoCorrection_;
     m.pitchSemis = pitchSemis_; m.pitchCents = pitchCents_;
     for (int t = 0; t < kSeqTracks; ++t) {
         std::snprintf(m.seqSampleNames[(size_t)t].data(),
@@ -972,14 +1006,15 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
     const bool oldProject = project.appState.size() == legacySize;
     const bool v4Project = project.appState.size() == offsetof(FullProjectSettings, seqScenesVelocity);
     const bool v5Project = project.appState.size() == offsetof(FullProjectSettings, extraTracks);
-    const bool v6Project = project.appState.size() == sizeof(FullProjectSettings);
+    const bool v7Project = project.appState.size() == sizeof(FullProjectSettings);
+    const bool v6Project = v7Project || project.appState.size() == offsetof(FullProjectSettings, tempoCorrection);
     if (!oldProject && !v4Project && !v5Project && !v6Project) {
         say("PROJECT SETTINGS INCOMPATIBLE"); return;
     }
     FullProjectSettings m{};
     std::memcpy(&m, project.appState.data(), project.appState.size());
     if (m.magic != 0x32505041 ||
-        (oldProject ? (m.version != 2 && m.version != 3) : v4Project ? m.version != 4 : v5Project ? m.version != 5 : m.version != 6) ||
+        (oldProject ? (m.version != 2 && m.version != 3) : v4Project ? m.version != 4 : v5Project ? m.version != 5 : v7Project ? m.version != 7 : m.version != 6) ||
         m.bytes != project.appState.size() || m.songSize > 64 ||
         m.selectedTrack < 0 || m.selectedTrack >= kTracks ||
         m.page < 0 || m.page >= kPages || m.selectedScene < 0 ||
@@ -999,6 +1034,9 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
     metroSwing_ = v6Project && std::isfinite(m.metronomeSwing) ? cl(m.metronomeSwing) : 0.f;
     metroVolume_ = v6Project && std::isfinite(m.metronomeVolume) ? cl(m.metronomeVolume) : .7f;
     metroMode_ = v6Project ? std::clamp((int)m.metronomeMode, 0, 5) : 2;
+    tempoCorrection_ = v7Project && std::isfinite(m.tempoCorrection) ? cl(m.tempoCorrection, .05f, 40.f) : 1.f;
+    haveTempoTap_ = false; tempoTapIntervals_.clear();
+    s_.setTempoCorrection(tempoCorrection_);
     applyMetronome();
     scale_ = m.scale;
     reverbSize_ = m.reverbSize; reverbDw_ = m.reverbWet;
@@ -1213,7 +1251,7 @@ std::string SamplerApp::loopText() const {
     if (st_.freeRecording) return fmt("RECORDING %.1fS", st_.freeSeconds);
     if (st_.track_clip_rec[track_]) return "OVERDUB";
     if (!loopAny_) return "LOOP EMPTY";
-    return fmt("LOOP %.0fBPM ", st_.bpm) + std::to_string(st_.loopBars) + (st_.loopBars == 1 ? " BAR" : " BARS");
+    return fmt("LOOP %.0fBPM ", st_.bpm * tempoCorrection_) + std::to_string(st_.loopBars) + (st_.loopBars == 1 ? " BAR" : " BARS");
 }
 void SamplerApp::keyEvent(int raw, bool down) {   // MIDI scene bank in LOOP mode; ordinary keyboard elsewhere
     if (raw < 0 || raw > 127) return;
@@ -1424,7 +1462,7 @@ void SamplerApp::button(int b, bool down) {
     case SEQ: if (sequencerMode_) exitSequencer(); else enterSequencer(); break;
     case EDIT: page_ = P_MIX; break;
     case GLO: page_ = P_KEY; break;
-    case SEL: page_ = metroSelected_ ? (page_ == P_METRO_SETTINGS ? P_METRO_TEMPO : P_METRO_SETTINGS) : P_LEN; break;
+    case SEL: page_ = metroSelected_ ? (page_ == P_METRO_TEMPO ? P_METRO_SETTINGS : page_ == P_METRO_SETTINGS ? P_METRO_CORRECT : P_METRO_TEMPO) : P_LEN; break;
     case REC: loopRecord(); break;
     default: break;
     }
@@ -1711,7 +1749,7 @@ void SamplerApp::draw(uint32_t now) {
     else if (metroSelected_)
         line = std::to_string(metroBeats_) + "/4  CLICK " + std::to_string(metroMode_) + "  SEL: NEXT PAGE";
     else if (sequencerMode_)
-        line = fmt("SEQ %.0f BPM  ", st_.bpm) + std::to_string(seqBeats_) +
+        line = fmt("SEQ %.0f BPM  ", st_.bpm * tempoCorrection_) + std::to_string(seqBeats_) +
                "/4  PAGE " + std::to_string(seqPage_ + 1);
     else line = std::string(kAlgo[ts_[track_].algo]) + "  " + loopText();
     const bool browserNotice = browserTouchedAt_ && now - browserTouchedAt_ < 4000;
@@ -1747,7 +1785,7 @@ void SamplerApp::draw(uint32_t now) {
         rects_[70 + i] = ~0ull;
         rect(70 + i, cx, cy + 38, bw, 3, ACCENT);
     }
-    const char* hint = metroSelected_ ? "SELECT: METRONOME PAGE  K1..K4: EDIT" : sequencerMode_ ? "16 WHITE: STEPS  8 BLACK: TRACKS  K1: PAGE" : mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_CUE ? "OCT+ + OCT- MENU   K1 RATE / TRIPLETS" : page_ == P_LEN ? "TURN K1: X2 OR /2  THE LOOP REPEATS" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_KEY ? "KEYS FOLLOW THE KEY  CHANGE ANY TIME"
+    const char* hint = metroSelected_ ? (page_ == P_METRO_CORRECT ? "K1: CORRECT BPM   TAP ON PHONE" : "SELECT: METRONOME PAGE  K1..K4: EDIT") : sequencerMode_ ? "16 WHITE: STEPS  8 BLACK: TRACKS  K1: PAGE" : mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_CUE ? "OCT+ + OCT- MENU   K1 RATE / TRIPLETS" : page_ == P_LEN ? "TURN K1: X2 OR /2  THE LOOP REPEATS" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_KEY ? "KEYS FOLLOW THE KEY  CHANGE ANY TIME"
                      : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
     drawText(90, 12, 228, 1, DIM, BLACK, hint, 38);
     needClear_ = false;
@@ -1792,7 +1830,7 @@ void SamplerApp::hero(uint32_t now, const Knobs& k) {
         char b[32];
         if (st_.loopSamples > 0) snprintf(b, sizeof b, "%.0f BARS", (double)st_.loopBars); else snprintf(b, sizeof b, "NO LOOP");
         drawText(100, x0, y0 + 8, 3, ACCENT, BLACK, b, 9);
-        snprintf(b, sizeof b, "%.1fS  %.0f BPM", st_.loopSamples / (double)SAMPLERATE, st_.bpm);
+        snprintf(b, sizeof b, "%.1fS  %.0f BPM", st_.loopSamples / (double)SAMPLERATE, st_.bpm * tempoCorrection_);
         drawText(101, x0, y0 + 32, 2, PAPER, BLACK, st_.loopSamples > 0 ? b : "REC TO MAKE ONE", 18);
     } else if (page_ == P_ENV) {   // the ADSR curve
         const float sa = 0.08f + 0.5f * x.a, sd = 0.08f + 0.5f * x.d, ss = 0.3f, sr = 0.08f + 0.5f * x.r, tot = sa + sd + ss + sr;

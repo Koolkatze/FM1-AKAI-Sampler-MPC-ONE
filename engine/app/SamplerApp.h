@@ -22,7 +22,7 @@ public:
     using Send = std::function<void(const uint8_t*, size_t)>;
     static constexpr int kTracks = Session::kTracks;
     enum Button { OCT_DOWN, OCT_UP, FX, SEL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC, STOP };  // STOP=14 is an optional external MIDI/software transport; native FM-1 has PLAY
-    enum Page { P_HOME, P_FX, P_ENV, P_LFO, P_ARP, P_SEQ, P_MIX, P_KEY, P_SAVE, P_LEN, P_CUE, P_STEP, P_TEMPO, P_METRO_TEMPO, P_METRO_SETTINGS, kPages };
+    enum Page { P_HOME, P_FX, P_ENV, P_LFO, P_ARP, P_SEQ, P_MIX, P_KEY, P_SAVE, P_LEN, P_CUE, P_STEP, P_TEMPO, P_METRO_TEMPO, P_METRO_SETTINGS, P_METRO_CORRECT, kPages };
     struct Knob {
         std::string name, value;
         float norm = 0;
@@ -74,6 +74,9 @@ public:
     int pitchCents() const { return pitchCents_; }
     float pitchedTempo() const { return pitchedTempo_; }
     void setTempoFlexBpm(float bpm);
+    float correctedTempoBpm() const { return tempoFlexBpm_ * pitchedTempo_ * tempoCorrection_; }
+    void setCorrectTempoBpm(float bpm);
+    void tapTempo(uint32_t nowMs);
     void setPitchSemitones(int semis);
     void setPitchCents(int cents);
     void setPitchedTempo(float ratio);
@@ -255,6 +258,11 @@ private:
     bool metroSelected_ = false;
     int metroBeats_ = 4, metroMode_ = 2; // OFF until user enables click
     float metroSwing_ = 0.f, metroVolume_ = 0.7f;
+    float tempoCorrection_ = 1.f;
+    uint32_t lastTempoTap_ = 0;
+    bool haveTempoTap_ = false;
+    std::deque<uint32_t> tempoTapIntervals_;
+    void applyCorrectTempo(float bpm);
     void applyMetronome() { s_.setMetronome(metroBeats_, metroSwing_, metroVolume_, metroMode_); }
     std::array<TrackState, kTracks> ts_;
     bool sequencerMode_ = false;

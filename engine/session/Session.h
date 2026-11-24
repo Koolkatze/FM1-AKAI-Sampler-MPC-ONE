@@ -88,6 +88,8 @@ public:
     void loadSequencerSamplePath(const std::string& path, int track);
     void clearSequencerSample(int track);
     void setMasterBpm(float bpm);
+    // Musical grid calibration only; never changes clip playback rate or PCM.
+    void setTempoCorrection(float ratio);
     void setGlobalPitch(float semitones, float cents);  // independent of tempo
     void setPitchedTempo(float ratio);                 // tape-like coupling
     // Metronome modes: 0 PLAY/REC, 1 REC, 2 OFF, 3 PLAY/REC MON, 4 REC MON, 5 OFF MON.

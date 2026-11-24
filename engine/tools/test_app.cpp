@@ -223,17 +223,28 @@ int main() {
                   light ? "LIGHT" : "DARK");
             // Standard page markers are 19x28 touch zones, right-aligned
             // at x798 and x817 (W=860, 24px right margin).
-            ui.touch(0, 826.f, 163.f, now + 15);
-            ui.touch(2, 826.f, 163.f, now + 15);
+            ui.touch(0, 806.f, 163.f, now + 15);
+            ui.touch(2, 806.f, 163.f, now + 15);
             CHECK(app.page() == SamplerApp::P_METRO_SETTINGS,
                   "%s second tiny MET selector opens METER/CLICK",
                   light ? "LIGHT" : "DARK");
             ui.frame(now + 16);
-            ui.touch(0, 806.f, 163.f, now + 17);
-            ui.touch(2, 806.f, 163.f, now + 17);
+            ui.touch(0, 787.f, 163.f, now + 17);
+            ui.touch(2, 787.f, 163.f, now + 17);
             CHECK(app.page() == SamplerApp::P_METRO_TEMPO,
                   "%s first tiny MET selector returns to TEMPO/PITCH",
                   light ? "LIGHT" : "DARK");
+            ui.frame(now + 18);
+            ui.touch(0, 826.f, 163.f, now + 19);
+            ui.touch(2, 826.f, 163.f, now + 19);
+            ui.frame(now + 20);
+            CHECK(app.page() == SamplerApp::P_METRO_CORRECT &&
+                  app.knobs()[0].valid && !app.knobs()[1].valid && !app.knobs()[2].valid,
+                  "%s third MET page has only the correction knob and tap target",
+                  light ? "LIGHT" : "DARK");
+            bool tapVisible = false;
+            for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) tapVisible |= op.text == "TAP TEMPO";
+            CHECK(tapVisible, "%s TAP TEMPO is visible", light ? "LIGHT" : "DARK");
             app.selectTrack(0);
         }
         theme::apply(true);
@@ -1483,6 +1494,23 @@ int main() {
         controls = app.knobs(SamplerApp::P_METRO_SETTINGS);
         controls[3].set(2.f / 5.f); // restore click OFF for existing live workspace
         run(.1);
+    }
+    {   // Grid correction must never request Tempo Flex processing or change raw BPM.
+        const float original = app.tempoFlexBpm() * app.pitchedTempo();
+        const auto raw = app.status();
+        app.setCorrectTempoBpm(100.f);
+        run(.1);
+        CHECK(std::fabs(app.correctedTempoBpm() - 100.f) < .01f &&
+              std::fabs(app.status().bpm - raw.bpm) < .01f &&
+              app.status().loopSamples == raw.loopSamples,
+              "manual correction changes only grid calibration");
+        app.tapTempo(10000); app.tapTempo(10500); app.tapTempo(11000);
+        CHECK(std::fabs(app.correctedTempoBpm() - 120.f) < .01f,
+              "500ms taps produce 120 BPM");
+        app.tapTempo(15000);
+        CHECK(std::fabs(app.correctedTempoBpm() - 120.f) < .01f,
+              "a long gap starts a new tap series without changing BPM");
+        app.setCorrectTempoBpm(original); run(.1);
     }
     {   // Click never leaks into monitored phone mix or user loop buffers.
         Session metro(SAMPLERATE);

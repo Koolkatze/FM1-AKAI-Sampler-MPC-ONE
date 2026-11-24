@@ -188,6 +188,7 @@ struct Session::Impl {
         int sampleRate = 0, loopSamples = 0;
         float tapeSpeed = 1.f, masterVolume = 0.9f;
         float sourceBpm = 120.f, projectBpm = 120.f, globalPitch = 0.f;
+        float tempoCorrection = 1.f;
         float returns[2] = {0.35f, 0.7f};
         float reverbSize = 0.7f, delaySeconds = 0.4f, delayFeedback = 0.4f;
     };
@@ -233,6 +234,7 @@ struct Session::Impl {
     bool seqEnabled = true;
     double seqPhase = 0.;
     float seqPitchSemis = 0.f, seqPitchCents = 0.f, pitchedTempo = 1.f;
+    float tempoCorrection = 1.f; // grid only, not used by stretch/tape/sample DSP
     bool tempoFlexOverride = false;
     float tempoFlexReference = 120.f;
     float clipReferenceBpm = 120.f;
@@ -370,13 +372,13 @@ struct Session::Impl {
         // Instead integrate the exact tape-head advance, including start/stop
         // acceleration. With no recorded loop the project BPM drives the clock.
         if (scrubbing && loopSamples > 0) {
-            seqPhase = std::fmod(tapePos * clipReferenceBpm * 4.0 / (60.0 * sr),
+            seqPhase = std::fmod(tapePos * clipReferenceBpm * tempoCorrection * 4.0 / (60.0 * sr),
                                  (double)total);
             seqLastStep = -1;
         } else if (seqEnabled && seqAudible && playing) {
             const double advance = (loopSamples > 0
                 ? clipReferenceBpm * 4.0 * tapeRate
-                : bpm * pitchedTempo * 4.0) / (60.0 * sr);
+                : bpm * pitchedTempo * 4.0) * tempoCorrection / (60.0 * sr);
             for (int i = 0; i < n; ++i) {
                 const int step = (int)seqPhase % total;
                 if (step != seqLastStep && triggerCount < kBlock) {
@@ -560,7 +562,7 @@ struct Session::Impl {
         bpm = tempoFlexOverride ? tempoFlexReference : saved.tempo;
         a_bpm = bpm * pitchedTempo;
         pos = saved.pos; tapePos = saved.tapePos; rate = saved.rate;
-        seqPhase = std::fmod(std::max(0., pos) * bpm * 4.0 / (60.0 * sr),
+        seqPhase = std::fmod(std::max(0., pos) * bpm * tempoCorrection * 4.0 / (60.0 * sr),
                              (double)(seqBeats * 4));
         seqLastStep = -1;
         playing = saved.playing; stopping = saved.stopping;
@@ -641,7 +643,7 @@ struct Session::Impl {
         tempoFlexOverride = false;
         tempoFlexReference = bpm;
         pos = c.pos; tapePos = c.tapePos; rate = c.rate;
-        seqPhase = std::fmod(std::max(0., pos) * bpm * 4.0 / (60.0 * sr),
+        seqPhase = std::fmod(std::max(0., pos) * bpm * tempoCorrection * 4.0 / (60.0 * sr),
                              (double)(seqBeats * 4));
         seqLastStep = -1;
         metroPosition = std::fmod(seqPhase / 4.0, (double)metroBeats);
@@ -1044,7 +1046,7 @@ struct Session::Impl {
             }
             // Every binary duration has a triplet alternative (two thirds
             // of the straight note): 1/4T is 1/6 of a 4/4 bar.
-            const double straight = (240.0 * sr / std::max(1.f, bpm * pitchedTempo))
+            const double straight = (240.0 * sr / std::max(1.f, bpm * pitchedTempo * tempoCorrection))
                                   / (double)(1 << (cueDivision / 2));
             const double length = std::max(1.0, std::min((double)loopSamples,
                 straight * ((cueDivision & 1) ? 2.0 / 3.0 : 1.0)));
@@ -1090,7 +1092,7 @@ struct Session::Impl {
             evs.clear();
             for (auto& nt : t.pending) evs.push_back({0, nt.note, nt.vel});
             t.pending.clear();
-            if (t.arpOn) t.arp.run(n, bpm * pitchedTempo, sr, evs);
+            if (t.arpOn) t.arp.run(n, bpm * pitchedTempo * tempoCorrection, sr, evs);
             std::stable_sort(evs.begin(), evs.end(), [](const Arp::Ev& a, const Arp::Ev& b) { return a.offset < b.offset; });
             if (t.sampler) {
                 t.sampler->setBend(bend + seqPitchSemis + seqPitchCents / 100.f
@@ -1237,8 +1239,8 @@ struct Session::Impl {
             ? std::max(0.0, (double)tapeSpeed.load()) : 1.0;
         const double rampClock = playing && loopSamples > 0 && ramp && !scrubbing
             ? std::max(0.0, rateSum / n) : 1.0;
-        a_metroBpm.store((float)(bpm * pitchedTempo * tapeClock * rampClock));
-        const double beatStep = std::max(1.0, (double)bpm * pitchedTempo) * tapeClock / (60.0 * sr);
+        a_metroBpm.store((float)(bpm * pitchedTempo * tempoCorrection * tapeClock * rampClock));
+        const double beatStep = std::max(1.0, (double)bpm * pitchedTempo * tempoCorrection) * tapeClock / (60.0 * sr);
         const int clickLength = std::max(1, sr / 30);
         float mp = 0.f;
         for (int i = 0; i < n; ++i) {
@@ -1458,6 +1460,11 @@ void Session::setMasterBpm(float value) {
         d->refreshLoopProcessing();
     });
 }
+void Session::setTempoCorrection(float ratio) {
+    if (!std::isfinite(ratio)) return;
+    ratio = std::clamp(ratio, .05f, 40.f);
+    d->post([this, ratio] { d->tempoCorrection = ratio; });
+}
 void Session::setGlobalPitch(float semis, float cents) {
     if (!std::isfinite(semis) || !std::isfinite(cents)) return;
     d->post([this, semis, cents] {
@@ -1625,7 +1632,7 @@ void Session::seek(float f) {
         if (d->loopSamples <= 0 || d->freeRec) return;
         const double p = clampf(f, 0.f, 0.9999f) * d->loopSamples;
         d->pos = p; d->tapePos = p;
-        d->seqPhase = std::fmod(p * d->clipReferenceBpm * 4.0 / (60.0 * d->sr),
+        d->seqPhase = std::fmod(p * d->clipReferenceBpm * d->tempoCorrection * 4.0 / (60.0 * d->sr),
                                  (double)(d->seqBeats * 4));
         d->seqLastStep = -1;
         d->metroPosition = std::fmod(d->seqPhase / 4.0, (double)d->metroBeats);
@@ -2037,6 +2044,7 @@ bool Session::exportSong(const std::string& directory) {
         fx.sampleRate = d->sr;
         fx.masterVolume = d->masterVol;
         fx.projectBpm = desiredBpm;
+        fx.tempoCorrection = d->tempoCorrection;
         fx.globalPitch = d->seqPitchSemis + d->seqPitchCents / 100.f;
         fx.tapeSpeed = (float)tapeRatio;
         fx.returns[0] = d->ret[0]; fx.returns[1] = d->ret[1];
@@ -2093,6 +2101,7 @@ bool Session::exportSong(const std::string& directory) {
             bounce.tapeSpeed = fx.tapeSpeed;
             bounce.tempoFlexOverride = flexible;
             bounce.tempoFlexReference = fx.projectBpm;
+            bounce.tempoCorrection = fx.tempoCorrection;
             bounce.ret[0] = fx.returns[0];
             bounce.ret[1] = fx.returns[1];
             bounce.reverb.setSize(fx.reverbSize);
