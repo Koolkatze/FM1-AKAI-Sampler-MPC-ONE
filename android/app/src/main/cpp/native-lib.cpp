@@ -195,6 +195,10 @@ FN(jboolean, wantSongExport)(JNIEnv*, jclass, jlong h) {
     auto& e = *E(h); std::lock_guard<std::mutex> l(e.surfaceMtx);
     return e.app->wantSongExport();
 }
+FN(void, finishSongExport)(JNIEnv*, jclass, jlong h, jboolean success) {
+    auto& e = *E(h); std::lock_guard<std::mutex> l(e.surfaceMtx);
+    e.app->finishSongExport(success != JNI_FALSE);
+}
 FN(jboolean, exportSong)(JNIEnv* env, jclass, jlong h, jstring directory) {
     auto& e = *E(h);
     const char* path = env->GetStringUTFChars(directory, nullptr);

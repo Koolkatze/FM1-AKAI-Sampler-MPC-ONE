@@ -125,10 +125,14 @@ public:
     void requestLoopExport() { wantLoopExport_ = true; }
     bool wantLoopExport() { bool result = wantLoopExport_; wantLoopExport_ = false; return result; }
     void requestSongExport() {
+        if (songExportState_ == 1) return; // no duplicate requests during render or publication
         if (songOrder_.empty()) { say("NO SCENES IN SONG"); return; }
+        songExportState_ = 1;
         wantSongExport_ = true;
     }
     bool wantSongExport() { const bool requested = wantSongExport_; wantSongExport_ = false; return requested; }
+    int songExportState() const { return songExportState_; } // idle, exporting, published, failed
+    void finishSongExport(bool success) { if (songExportState_ == 1) songExportState_ = success ? 2 : -1; }
     void requestName(int kind) { dialogRequest_ = kind; } // 1 named loop, 2 named project slot
     void requestSaveProjectName(int slot) { pendingProjectSlot_ = slot; dialogRequest_ = 2; }
     int takeDialogRequest() { int request = dialogRequest_; dialogRequest_ = 0; return request; }
@@ -319,6 +323,7 @@ private:
     uint32_t auditionAt_ = 0, previewOffAt_ = 0; int previewNote_ = -1, previewTrack_ = -1;
     bool wantFile_ = false, wantPack_ = false, wantLoopExport_ = false,
          wantSongExport_ = false, previewAfterLoad_ = false;
+    int songExportState_ = 0;
     int dialogRequest_ = 0, pendingProjectSlot_ = -1;
     int pendingProjectLabelSlot_ = -1;
     std::string pendingProjectLabel_;

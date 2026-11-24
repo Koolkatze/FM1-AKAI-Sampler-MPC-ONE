@@ -729,7 +729,9 @@ int main() {
         CHECK(app.songOrder()[1] == 0 && app.songOrder()[2] == 2, "Song Mode can reorder steps");
         app.songMove(+1); run(0.1);
         app.requestSongExport();
-        CHECK(app.wantSongExport(), "valid three-step SONG requests processed export");
+        CHECK(app.songExportState() == 1 && app.wantSongExport(), "valid three-step SONG requests processed export");
+        app.requestSongExport();
+        CHECK(!app.wantSongExport(), "EXPORTING blocks duplicate taps");
         const std::string songDir = "/tmp/fm1sampler_t2/song_export_three_scenes";
         CHECK(s.exportSong(songDir), "export entire C1-D1-C1 SONG starts");
         for (int k = 0; k < 220 && s.loopExportStatus() == 1; ++k) run(0.04);
@@ -741,6 +743,14 @@ int main() {
               songAudio.size() > (size_t)compositionLength * 2 * 3 &&
               songEnergy > 0.01,
               "EXPORT SONG renders all 3 ordered scenes plus the reverb/delay tail");
+        CHECK(app.songExportState() == 1, "rendered WAV alone does not mark public export complete");
+        // Android calls this only after MediaStore publication succeeds.
+        app.finishSongExport(true);
+        CHECK(app.songExportState() == 2, "publication marks SONG EXPORTED");
+        app.requestSongExport();
+        CHECK(app.songExportState() == 1 && app.wantSongExport(), "completed song may be exported again");
+        app.finishSongExport(false);
+        CHECK(app.songExportState() == -1, "publication error never claims SONG EXPORTED");
         app.playSong(); run(0.12);
         CHECK(app.status().songPlaying && app.status().songStep == 0 &&
               app.status().activeScene == 0, "Song starts on its first scene");
@@ -1150,6 +1160,28 @@ int main() {
         for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT)
             hasSongExport |= op.text == "EXPORT SONG";
         CHECK(hasSongExport, "separate full-screen SONG page includes EXPORT SONG");
+        if (!app.songOrder().empty()) {
+            const auto orangeButton = [&](const char* label) {
+                bool visible = false, orange = false;
+                for (const auto& op : ui.ops()) {
+                    if (op.type == UiOp::TEXT && op.text == label && op.color == theme::ON_ACCENT) visible = true;
+                    if (op.type == UiOp::RRECT && op.color == theme::ACCENT &&
+                        op.f[0] > 600.f && op.f[1] >= 344.f && op.f[1] <= 346.f) orange = true;
+                }
+                return visible && orange;
+            };
+            for (bool light : {true, false}) {
+                theme::apply(light);
+                app.requestSongExport();
+                CHECK(app.wantSongExport(), "song export starts from idle or previous completion");
+                ui.frame(now + 11);
+                CHECK(orangeButton("EXPORTING"), "%s EXPORTING button is orange", light ? "LIGHT" : "DARK");
+                app.finishSongExport(true);
+                ui.frame(now + 11);
+                CHECK(orangeButton("SONG EXPORTED"), "%s SONG EXPORTED stays orange", light ? "LIGHT" : "DARK");
+            }
+            theme::apply(true);
+        }
         app.exitPerformanceMode();
         ui.touch(0, 55.f, 26.f, now + 12); // return to PROJECT menu
         ui.touch(2, 55.f, 26.f, now + 12);

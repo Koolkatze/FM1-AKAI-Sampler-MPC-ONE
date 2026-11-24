@@ -1420,8 +1420,11 @@ void SamplerUI::performanceSheet() {
                st_.songPlaying, [this] { app_.playSong(); }, 11, true);
         button({x + 2.f * (aw + gap), Y(345), aw, H(40)}, "STOP SONG",
                false, [this] { app_.stopSong(); }, 11);
-        button({x + 3.f * (aw + gap), Y(345), aw, H(40)}, "EXPORT SONG",
-               false, [this] { app_.requestSongExport(); }, 11);
+        const int exporting = app_.songExportState();
+        const char* exportLabel = exporting == 1 ? "EXPORTING" :
+            exporting == 2 ? "SONG EXPORTED" : exporting < 0 ? "EXPORT FAILED" : "EXPORT SONG";
+        button({x + 3.f * (aw + gap), Y(345), aw, H(40)}, exportLabel,
+               exporting != 0, [this] { app_.requestSongExport(); }, 11);
     }
     const auto toast = app_.toast();
     if (!toast.empty() && H_ >= 440.f)

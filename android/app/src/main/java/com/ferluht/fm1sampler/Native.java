@@ -18,6 +18,7 @@ public final class Native {
     public static native boolean wantPack(long h);
     public static native boolean wantLoopExport(long h);
     public static native boolean wantSongExport(long h);
+    public static native void finishSongExport(long h, boolean success);
     public static native boolean exportLoops(long h, String temporaryDirectory);
     public static native boolean exportSong(long h, String temporaryDirectory);
     public static native int loopExportStatus(long h);

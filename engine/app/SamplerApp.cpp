@@ -1094,12 +1094,14 @@ bool SamplerApp::saveFullProject(int slot) {
     return true;
 }
 bool SamplerApp::loadFullProject(int slot) {
+    if (songExportState_ == 1) { say("FINISH SONG EXPORT FIRST"); return false; }
     if (recordingNow() || mic_ != 0) { say("FINISH RECORDING FIRST"); return false; }
     if (!s_.loadProject(slot)) { say("EMPTY PROJECT OR BUSY"); return false; }
     say("LOADING PROJECT " + std::to_string(slot + 1));
     return true;
 }
 void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
+    if (songExportState_ != 1) songExportState_ = 0;
     const size_t legacySize = offsetof(FullProjectSettings, seqVelocity);
     const bool oldProject = project.appState.size() == legacySize;
     const bool v4Project = project.appState.size() == offsetof(FullProjectSettings, seqScenesVelocity);

@@ -2,7 +2,9 @@
 
 Sampler, editor de audio y **looper de 16 pistas** para Android. El teléfono ejecuta el motor de audio, la biblioteca y la interfaz; el **M-VAVE FM-1** puede actuar como superficie de control MIDI por **USB**, con botones, teclado y encoders. El motor y la interfaz se encuentran en `engine/`; Android integra ese motor mediante JNI.
 
-> **Versión 0.42.2 (preview):** Correct Tempo añade DECIMALS en K4 a la derecha de TAP TEMPO, con precisión de 0,01 BPM. [Notas 0.42.2](docs/RELEASE_NOTES_0422.md).
+> **Versión 0.42.3 (preview):** EXPORT SONG indica el estado de exportación en naranja hasta confirmar que el WAV se ha guardado en Downloads. [Notas 0.42.3](docs/RELEASE_NOTES_0423.md).
+
+> **Versión 0.42.2 (preview anterior):** Correct Tempo añade DECIMALS en K4 a la derecha de TAP TEMPO, con precisión de 0,01 BPM. [Notas 0.42.2](docs/RELEASE_NOTES_0422.md).
 
 > **Versión 0.42.1 (preview anterior):** LIBRARY vuelve a estar disponible durante la edición del secuenciador de un pad. [Notas 0.42.1](docs/RELEASE_NOTES_0421.md).
 
@@ -12,7 +14,7 @@ Sampler, editor de audio y **looper de 16 pistas** para Android. El teléfono ej
 
 ## Descargas y compilación
 
-- **Versiones firmadas:** [GitHub Releases](https://github.com/Koolkatze/fm1-sampler/releases) y [GitHub Actions](https://github.com/Koolkatze/fm1-sampler/actions). La versión anterior [0.41.0](https://github.com/Koolkatze/fm1-sampler/releases/tag/v0.41-loopsong-preview.1) está publicada; la [0.42.0](https://github.com/Koolkatze/fm1-sampler/releases/tag/v0.42-pad-edit-preview.1) ya está publicada y la [0.42.1](https://github.com/Koolkatze/fm1-sampler/releases/tag/v0.42.1-pad-edit-preview.1) ya está publicada y la 0.42.2 requiere las comprobaciones de GitHub Actions. Antes de actualizar guarda todos los pads y arreglos con SAVE PROJECT y haz SAVE BACKUP. [Guía de actualización sin perder datos](docs/UPDATES_WITHOUT_DATA_LOSS.md).
+- **Versiones firmadas:** [GitHub Releases](https://github.com/Koolkatze/fm1-sampler/releases) y [GitHub Actions](https://github.com/Koolkatze/fm1-sampler/actions). La versión anterior [0.41.0](https://github.com/Koolkatze/fm1-sampler/releases/tag/v0.41-loopsong-preview.1) está publicada; la [0.42.0](https://github.com/Koolkatze/fm1-sampler/releases/tag/v0.42-pad-edit-preview.1) ya está publicada y la [0.42.1](https://github.com/Koolkatze/fm1-sampler/releases/tag/v0.42.1-pad-edit-preview.1) ya está publicada y las últimas previews se encuentran en Releases cuando superan las comprobaciones de GitHub Actions. Antes de actualizar guarda todos los pads y arreglos con SAVE PROJECT y haz SAVE BACKUP. [Guía de actualización sin perder datos](docs/UPDATES_WITHOUT_DATA_LOSS.md).
 - **Código Android:** `android/`; **motor de audio/UI:** `engine/`; **protocolo de hardware:** `PROTOCOL.md`.
 - **Utilidad ADB para backups TAR y proyectos `.fm1p`:** [`tools/FM1_ADB_Recuperacion_0389.py`](tools/FM1_ADB_Recuperacion_0389.py) y [guía de uso](docs/ADB_RECUPERACION_0389.md).
 - **Documentación:** [16 pistas + MET v0.40](docs/FM1_16TRACK_METRONOME_040.md), [resumen técnico y pendientes](docs/STATUS_040.md), [secuenciador + Tempo Flex v0.39](docs/FM1_SEQUENCER_039.md), [biblioteca, proyectos y backups](docs/SAMPLE_LIBRARY.md), [escenas y SONG](docs/SCENES_AND_SONG.md), [migración](docs/MIGRACION_SEGURA.md).
@@ -32,7 +34,7 @@ Las compilaciones debug de GitHub usan **`com.ferluht.fm1sampler.scenes`**; la v
 - En HOME, toca el **último icono central PROJECT**. En el menú se muestran botones grandes **SAVE PROJECT**, **LOAD PROJECT**, **EXPORT ALL LOOPS** y **LOOP / SONG MODE**.
 - **LOOP / SONG MODE** abre otra pantalla a ancho completo. Desde allí elige **COMPOSE**, **LOOP MODE**, **SONG MODE**, **PROJECT** o **HOME**. No hay columnas superpuestas.
 - **LOOP:** 12 pads grandes C1–B1, 16 botones T1–T16 en dos filas, botones **OFF + SC 1–SC 8** para enlazar **una escena completa del secuenciador** (sus 8 pistas y pasos) al pad seleccionado, además de las pistas de audio elegidas. **SAVE PAD/REPLACE PAD**, **LAUNCH**, **EXIT LOOP** y **DELETE PAD** mantienen el comportamiento original y las confirmaciones.
-- **SONG:** pads, orden del arreglo con hasta 8 pasos grandes visibles por página, **+ ADD PAD**, **REMOVE**, **MOVE LEFT/RIGHT**, **PLAY SONG**, **STOP SONG** y **EXPORT SONG**.
+- **SONG:** pads, orden del arreglo con hasta 8 pasos grandes visibles por página, **+ ADD PAD**, **REMOVE**, **MOVE LEFT/RIGHT**, **PLAY SONG**, **STOP SONG** y **EXPORT SONG**. Al pulsar EXPORT SONG, el botón se vuelve naranja y dice **EXPORTING** durante el renderizado y la publicación en Downloads; no admite pulsaciones duplicadas. Cuando el WAV se publica correctamente, muestra **SONG EXPORTED** en naranja hasta una nueva exportación o la carga de otro proyecto. Si falla, muestra **EXPORT FAILED** y permite reintentar.
 - **Al abrir la APK sin cargar proyecto:** los pads de LOOP y el orden de SONG aparecen **vacíos**, aunque anteriormente hubieras editado otros. **Al cargar un proyecto distinto:** se restauran exclusivamente los pads y el arreglo contenidos en ese archivo, o siguen vacíos si no existen. Las fuentes de muestras y los parámetros de la app conservan su comportamiento de inicio.
 - **Guardado:** usa **SAVE PROJECT** en la ranura deseada para conservar escenas, canción, muestras, loops, secuenciador y ajustes. El antiguo archivo global \`fm1_scenes.dat\` ya no se carga ni se sobreescribe automáticamente; si existía, se conserva intacto como posible copia de recuperación.
 
