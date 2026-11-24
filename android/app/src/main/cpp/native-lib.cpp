@@ -53,13 +53,14 @@ struct Engine : public oboe::AudioStreamDataCallback, public oboe::AudioStreamEr
     void onErrorAfterClose(oboe::AudioStream* s, oboe::Result r) override { LOG("stream closed: %s", oboe::convertToText(r)); if (s == streamRaw.load()) streamDead = true; }
     std::atomic<oboe::AudioStream*> streamRaw{nullptr};
 
-    int start(int dev) {
+    int start(int dev, bool strictPhoneOutput = false) {
         std::lock_guard<std::mutex> lk(streamMtx);
         deviceId = dev;
-        streamDead = false; streamRaw = nullptr;
+        streamDead = false;
+        if (strictPhoneOutput && !dev) { LOG("MONITOR requires an explicit built-in phone speaker/earpiece"); return -3; } streamRaw = nullptr;
         if (stream) { stream->close(); stream.reset(); }
         oboe::Result r = oboe::Result::ErrorInternal;
-        for (int attempt = 0; attempt < 3; attempt++) {   // exclusive low latency first, then shared, then without the device id
+        for (int attempt = 0; attempt < (strictPhoneOutput ? 2 : 3); attempt++) {   // MON never falls back to the default USB device
             oboe::AudioStreamBuilder b;
             b.setDirection(oboe::Direction::Output)->setPerformanceMode(oboe::PerformanceMode::LowLatency)
                 ->setSharingMode(attempt == 0 ? oboe::SharingMode::Exclusive : oboe::SharingMode::Shared)->setFormat(oboe::AudioFormat::Float)->setChannelCount(2)
@@ -67,6 +68,11 @@ struct Engine : public oboe::AudioStreamDataCallback, public oboe::AudioStreamEr
                 ->setUsage(oboe::Usage::Media)->setDataCallback(this)->setErrorCallback(this);
             if (dev && attempt < 2) b.setDeviceId(dev);
             r = b.openStream(stream);
+            if (r == oboe::Result::OK && strictPhoneOutput && stream->getDeviceId() != dev) {
+                LOG("MONITOR route mismatch: requested phone device %d, actual %d", dev, stream->getDeviceId());
+                stream->close(); stream.reset(); r = oboe::Result::ErrorInternal;
+                continue;
+            }
             if (r == oboe::Result::OK) break;
             LOG("open failed (attempt %d): %s", attempt, oboe::convertToText(r));
             stream.reset();
@@ -122,7 +128,7 @@ FN(jlong, create)(JNIEnv* env, jclass, jstring dataDir, jstring sampleDir) {
     return reinterpret_cast<jlong>(e);
 }
 FN(void, destroy)(JNIEnv*, jclass, jlong h) { E(h)->stop(); delete E(h); }
-FN(jint, startAudio)(JNIEnv*, jclass, jlong h, jint dev) { return E(h)->start(dev); }
+FN(jint, startAudio)(JNIEnv*, jclass, jlong h, jint dev, jboolean strict) { return E(h)->start(dev, strict == JNI_TRUE); }
 FN(jint, startInput)(JNIEnv*, jclass, jlong h, jint dev) { return E(h)->startInput(dev); }
 FN(void, stopAudio)(JNIEnv*, jclass, jlong h) { E(h)->stop(); }
 // 1 once when the system closed the output stream under us (the device list changed)
