@@ -834,18 +834,14 @@ int main() {
             for (const auto& op : ui.ops()) if (op.type == UiOp::TEXT) {
                 if (op.text.size() >= 2 && op.text[0] == 'T' &&
                     op.text[1] >= '1' && op.text[1] <= '9' &&
-                    op.text.size() <= 3) ++tracks;
+                    op.text.size() <= 3 && op.f[1] > 200.f && op.f[1] < 275.f)
+                    ++tracks;
                 if (op.text.rfind("SC ", 0) == 0 && op.text.size() <= 4) ++seqButtons;
                 pads += op.text == "C1" || op.text == "D1";
                 loopScene |= op.text.find("SEQUENCER SCENE") != std::string::npos;
                 songScene |= op.text == "SONG MODE";
                 songOrder |= op.text == "SONG ORDER";
             }
-            if (!(tracks == 16 && seqButtons == 8 && pads >= 2 &&
-                  loopScene && songScene && !songOrder))
-                printf("LAYOUT TRACE %s: tracks=%d seq=%d pads=%d loop=%d songTab=%d songOrder=%d\n",
-                    light ? "LIGHT" : "DARK", tracks, seqButtons, pads,
-                    loopScene, songScene, songOrder);
             CHECK(tracks == 16 && seqButtons == 8 && pads >= 2 &&
                   loopScene && songScene && !songOrder,
                   "%s LOOP fills whole view with 12 pads, 16 tracks, 8 direct SEQ scenes",
@@ -1137,12 +1133,6 @@ int main() {
             slot1 |= op.text == "PROJECT 1";
             slot2 |= op.text == "PROJECT 2";
             page1 |= op.text == "PAGE 1 / 2";
-        }
-        if (!(slotPicker && slot1 && slot2 && page1)) {
-            printf("PROJECT SAVE PICKER DEBUG: mode=%d, labels:", app.performanceActive());
-            for (const auto& op : ui.ops())
-                if (op.type == UiOp::TEXT) printf(" [%s]", op.text.c_str());
-            printf("\n");
         }
         CHECK(slotPicker && slot1 && slot2 && page1,
               "full-project save picker shows independent slots 1-8 on page 1");
