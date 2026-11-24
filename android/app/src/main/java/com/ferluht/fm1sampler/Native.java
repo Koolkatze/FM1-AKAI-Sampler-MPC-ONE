@@ -5,7 +5,7 @@ public final class Native {
     static { System.loadLibrary("fm1sampler"); }
     public static native long create(String dataDir, String sampleDir);
     public static native void destroy(long h);
-    public static native int startAudio(long h, int deviceId);
+    public static native int startAudio(long h, int deviceId, boolean strictPhoneOutput);
     public static native int startInput(long h, int deviceId);
     public static native void stopAudio(long h);
     public static native boolean audioDead(long h);
