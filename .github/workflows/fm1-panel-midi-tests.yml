@@ -11,6 +11,13 @@ on:
       - "firmware/hosttest/ctrl_host.c"
       - "firmware/CUE.md"
       - ".github/workflows/fm1-panel-midi-tests.yml"
+  pull_request:
+    paths:
+      - "firmware/app/ctrl.c"
+      - "firmware/app/audio_output.c"
+      - "firmware/app/audio_output.h"
+      - "firmware/hosttest/ctrl_host.c"
+      - ".github/workflows/fm1-panel-midi-tests.yml"
   workflow_dispatch:
 
 jobs:
@@ -23,6 +30,10 @@ jobs:
           mkdir -p firmware/build/host
           cc -std=c11 -O2 -DFM1_HOST_TEST -I firmware/sdk/include -I firmware/app -I firmware/app/synth \
             firmware/hosttest/ctrl_host.c -lm -o firmware/build/host/ctrl_host
+      - name: Compile headphone-only metronome audio ISR with the host C compiler
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -DFM1_HOST_TEST -I firmware/sdk/include -I firmware/app \
+            -c firmware/app/audio_output.c -o firmware/build/host/audio_output.o
       - name: Verify physical OCT On/Off and PLAY over USB
         working-directory: firmware/build/host
         run: ./ctrl_host
