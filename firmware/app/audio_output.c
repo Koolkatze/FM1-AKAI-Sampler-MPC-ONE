@@ -25,7 +25,7 @@ static inline __attribute__((always_inline)) int32_t limit(int64_t value)
  * Periodic host phase updates slowly trim clock drift, not audible click timing.
  */
 static volatile uint32_t metro_bpm10 = 1200;
-static volatile uint32_t metro_settings = 0x02040000U; /* initialized below on first command */
+static volatile uint32_t metro_settings; /* beats=0 until first valid command */
 static volatile uint32_t metro_beatfrac, metro_sequence;
 static uint64_t metro_position, metro_step, metro_length;
 static int64_t metro_trim;
@@ -54,7 +54,7 @@ void fm1_metro_control(unsigned bpm10, unsigned beats, unsigned swing,
     ++metro_sequence;
 }
 
-static void metro_jack_mix(int32_t *output, unsigned gain)
+FM1_AUDIO_CODE static void metro_jack_mix(int32_t *output, unsigned gain)
 {
     const uint32_t config = metro_settings;
     const unsigned beats = config & 127U;
@@ -64,6 +64,10 @@ static void metro_jack_mix(int32_t *output, unsigned gain)
     const unsigned mode = (config >> 21) & 7U;
     const unsigned recording = (config >> 24) & 1U;
     const int audible = (mode == 3U || (mode == 4U && recording)) && volume > 0U;
+    /* In MON modes this DAC is a private cue output: suppress USB music,
+       Bluetooth and local synth while leaving USB capture unchanged. */
+    if (mode >= 3U && mode <= 5U)
+        for (unsigned i = 0; i < FM1_BLOCK_WORDS; ++i) output[i] = 0;
     const uint32_t step = (uint32_t)(((uint64_t)metro_bpm10 << 32) /
                         (600ULL * FM1_SAMPLE_RATE));
     metro_step = step ? step : 1U;
