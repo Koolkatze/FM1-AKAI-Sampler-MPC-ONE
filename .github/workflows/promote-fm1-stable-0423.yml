@@ -1,0 +1,47 @@
+name: Promote verified FM1 Sampler 0.42.3 to stable
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/promote-fm1-stable-0423.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fm1-stable-promotion-0423
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Promote the exact CI-verified signed APK
+        env:
+          GH_TOKEN: ${{ secrets.FM1_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          source_tag='v0.42.3-pad-edit-preview.1'
+          source_sha='4d10a6693ce0e8c10b8aaa6a58d09ada2a196a19'
+          stable_tag='v0.42.3'
+          source_asset='FM1-Sampler-PadEdit-0.42.3-signed-preview.apk'
+          stable_asset='FM1-Sampler-0.42.3-signed.apk'
+          mkdir -p dist
+          gh release download "$source_tag" --repo "$GITHUB_REPOSITORY" --pattern "$source_asset" --dir dist
+          echo '285112055b7e3b85a1ecd5f49b1019b1db17f2826f2b8f26a8184beb60e7075b  dist/FM1-Sampler-PadEdit-0.42.3-signed-preview.apk' | sha256sum --check
+          mv "dist/$source_asset" "dist/$stable_asset"
+          if gh release view "$stable_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            mkdir -p verify
+            gh release download "$stable_tag" --repo "$GITHUB_REPOSITORY" --pattern "$stable_asset" --dir verify
+            echo '285112055b7e3b85a1ecd5f49b1019b1db17f2826f2b8f26a8184beb60e7075b  verify/FM1-Sampler-0.42.3-signed.apk' | sha256sum --check
+            gh release edit "$stable_tag" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest
+          else
+            gh release create "$stable_tag" "dist/$stable_asset" --repo "$GITHUB_REPOSITORY" --target "$source_sha" --title "FM1 Sampler 0.42.3" --notes-file docs/RELEASE_NOTES_0423.md --latest
+          fi
+          test "$(gh release view "$stable_tag" --repo "$GITHUB_REPOSITORY" --json isPrerelease,isDraft --jq '.isPrerelease or .isDraft')" = false
+          mkdir -p final-check
+          gh release download "$stable_tag" --repo "$GITHUB_REPOSITORY" --pattern "$stable_asset" --dir final-check
+          echo '285112055b7e3b85a1ecd5f49b1019b1db17f2826f2b8f26a8184beb60e7075b  final-check/FM1-Sampler-0.42.3-signed.apk' | sha256sum --check
