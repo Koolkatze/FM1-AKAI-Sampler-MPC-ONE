@@ -1050,6 +1050,34 @@ int main() {
         CHECK(app.status().track_has_clip[0] && app.status().track_has_clip[1],
               "EXIT after a reloaded SONG restores the saved COMPOSE recordings");
 
+        // Different projects own different LOOP pads and SONG arrangements.
+        // A project with NO scenes must clear every scene/order inherited
+        // from the previously opened project, without erasing source samples.
+        const std::string sampleBeforeEmptyProject = app.sampleLabel(0);
+        for (int pad = 0; pad < Session::kScenes; ++pad) {
+            app.selectScene(pad, false);
+            if (app.sceneSaved(pad)) { app.deleteScene(); run(.12); }
+        }
+        run(.20);
+        CHECK(app.status().sceneMask == 0 && app.songOrder().empty(),
+              "clearing LOOP pads also empties this working SONG arrangement");
+        CHECK(app.saveFullProject(4),
+              "save an independent PROJECT 5 with empty LOOP pads and SONG");
+        for (int spin = 0; spin < 28 && app.fullProjectOperation() == 1; ++spin) run(.12);
+        CHECK(app.fullProjectOperation() == 2 && app.fullProjectExists(4),
+              "empty performance project saved with its samples and settings");
+        CHECK(app.loadFullProject(0), "switch back to PROJECT 1 with recorded scenes");
+        for (int spin = 0; spin < 35 && app.fullProjectOperation() == 3; ++spin) run(.12);
+        run(.28);
+        CHECK((app.status().sceneMask & 5u) == 5u && app.songOrder() == originalSong,
+              "PROJECT 1 restores only its own LOOP pads and SONG");
+        CHECK(app.loadFullProject(4), "switch to empty PROJECT 5");
+        for (int spin = 0; spin < 35 && app.fullProjectOperation() == 3; ++spin) run(.12);
+        run(.28);
+        CHECK(app.status().sceneMask == 0 && app.songOrder().empty() &&
+              app.sampleLabel(0) == sampleBeforeEmptyProject,
+              "PROJECT 5 clears previous project's LOOP and SONG, retaining its own samples");
+
         // Truncated project must never overwrite the current unsaved workspace.
         {
             std::ifstream original("/tmp/fm1sampler_t2/project_1.fm1p", std::ios::binary);
@@ -1085,7 +1113,10 @@ int main() {
             hasSongExport |= op.text == "EXPORT SONG";
         CHECK(hasSongExport, "separate full-screen SONG page includes EXPORT SONG");
         app.exitPerformanceMode();
-        ui.touch(0, 80.f, 64.f, now + 9);
+        ui.touch(0, 55.f, 26.f, now + 12); // return to PROJECT menu
+        ui.touch(2, 55.f, 26.f, now + 12);
+        ui.frame(now + 13);
+        ui.touch(0, 80.f, 64.f, now + 14);
         ui.touch(2, 80.f, 64.f, now + 9);
         ui.frame(now + 10);
         bool slotPicker = false, slot1 = false, slot2 = false, page1 = false;
