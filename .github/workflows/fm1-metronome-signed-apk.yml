@@ -6,6 +6,7 @@ on:
     paths:
       - 'android/app/build.gradle'
       - 'android/app/src/main/java/**'
+      - 'android/app/src/main/cpp/**'
       - 'android/app/src/test/java/**'
       - 'engine/**'
       - 'firmware/app/ctrl.c'
