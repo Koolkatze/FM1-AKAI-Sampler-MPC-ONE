@@ -16,7 +16,7 @@ public:
     void frame(uint32_t nowMs);
     void pipFrame(uint32_t nowMs);
     void refreshBrowserAfterImport() { if (sheetOpen_) buildBrowserRows(); }
-    void openProject(bool on) { projectOpen_ = on; }
+    void openProject(bool on) { projectOpen_ = on; if (on) performanceOpen_ = false; }
     void setEditor(bool on) { editor_ = on; }   // false: the cassette deck, true: sample / page editor
     const std::vector<UiOp>& ops() const { return ops_; }
     void touch(int action /*0 down 1 move 2 up*/, float x, float y, uint32_t nowMs);
@@ -67,6 +67,7 @@ private:
         bool directory = false;
     };
     void projectSheet();
+    void performanceSheet();
     void projectSlotsSheet();
 
     SamplerApp& app_;
@@ -78,7 +79,8 @@ private:
     uint32_t now_ = 0;
     uint32_t seenHomeNavigation_ = 0;
     Session::Status st_{};
-    bool linkMidi_ = false, linkAudio_ = false, sheetOpen_ = false, editor_ = false, projectOpen_ = false, tempoOpen_ = false;
+    bool linkMidi_ = false, linkAudio_ = false, sheetOpen_ = false, editor_ = false,
+         projectOpen_ = false, performanceOpen_ = false, tempoOpen_ = false;
     float sheetScroll_ = 0, sheetLastY_ = 0, sheetMoved_ = 0;
     std::string browseDir_;   // path relative to FM1-SAMPLER, empty means root
     std::vector<BrowserRow> browseRows_;
