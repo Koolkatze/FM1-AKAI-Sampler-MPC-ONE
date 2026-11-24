@@ -2,16 +2,27 @@
 
 Sampler, editor de audio y **looper de 16 pistas** para Android. El teléfono ejecuta el motor de audio, la biblioteca y la interfaz; el **M-VAVE FM-1** puede actuar como superficie de control MIDI por **USB**, con botones, teclado y encoders. El motor y la interfaz se encuentran en `engine/`; Android integra ese motor mediante JNI.
 
-> **Versión 0.40.0 (preview):** rama `feature/16-looper-metronome-monitor`. **16 pistas de looper + metrónomo de control (MET)**, manteniendo las **8 pistas y 8 escenas del secuenciador**. La APK firmada supera CI; la monitorización del metrónomo por minijack del FM-1 es experimental y **no se ha validado físicamente**. No confundas Android APK con el firmware físico ni con Workbench, Urban-1 o Blackhole Remote.
+> **Versión 0.41.0 (preview):** rama `feature/16-looper-metronome-monitor`. **PROJECT, LOOP y SONG ahora tienen pantallas independientes a pantalla completa**, 12 pads con 16 pistas de looper y botones directos para escoger cualquiera de las 8 escenas del secuenciador. Los pads y el orden SONG se guardan exclusivamente en el proyecto `.fm1p` elegido; una apertura nueva muestra LOOP/SONG vacíos. Se mantienen **16 pistas + MET** y el tema Light/Dark. La monitorización del metrónomo por FM-1 es experimental y **no se ha validado físicamente**; la APK no flashea el firmware.
 
 ## Descargas y compilación
 
-- **Versión 0.40.0 (pre-release de prueba):** [GitHub Releases](../../releases/tag/v0.40-metronome-preview.1). **Compilación 0.40 firmada y validada:** [descargar artefacto de GitHub Actions](https://github.com/Koolkatze/fm1-sampler/actions/runs/45376916551/artifacts/14910989314). Antes de instalar, sigue la [guía de actualización sin perder datos](docs/UPDATES_WITHOUT_DATA_LOSS.md).
+- **Versión 0.41.0 (pre-release Android):** [GitHub Releases](../../releases/tag/v0.41-loopsong-preview.1), [notas y migración de LOOP/SONG](docs/RELEASE_NOTES_041.md). **Versión anterior 0.40:** [archivo histórico](../../releases/tag/v0.40-metronome-preview.1). **IMPORTANTE: antes de actualizar guarda todos los pads y arreglos SONG antiguos mediante SAVE PROJECT y haz SAVE BACKUP**; ahora un arranque sin proyecto cargado muestra LOOP/SONG vacíos. [Guía de actualización sin perder datos](docs/UPDATES_WITHOUT_DATA_LOSS.md).
 - **Código Android:** `android/`; **motor de audio/UI:** `engine/`; **protocolo de hardware:** `PROTOCOL.md`.
 - **Utilidad ADB para backups TAR y proyectos `.fm1p`:** [`tools/FM1_ADB_Recuperacion_0389.py`](tools/FM1_ADB_Recuperacion_0389.py) y [guía de uso](docs/ADB_RECUPERACION_0389.md).
 - **Documentación:** [16 pistas + MET v0.40](docs/FM1_16TRACK_METRONOME_040.md), [resumen técnico y pendientes](docs/STATUS_040.md), [secuenciador + Tempo Flex v0.39](docs/FM1_SEQUENCER_039.md), [biblioteca, proyectos y backups](docs/SAMPLE_LIBRARY.md), [escenas y SONG](docs/SCENES_AND_SONG.md), [migración](docs/MIGRACION_SEGURA.md).
 
 Las compilaciones debug de GitHub usan **`com.ferluht.fm1sampler.scenes`**; la variante original usa **`com.ferluht.fm1sampler`**. Son instalaciones con datos privados separados. Las firmas de debug de diferentes ejecuciones pueden no coincidir: **no desinstales una app con proyectos/loops sin haber exportado y verificado una copia de seguridad externa**.
+
+## Novedades 0.41: PROJECT, LOOP y SONG a pantalla completa
+
+- En HOME, toca el **último icono central PROJECT**. En el menú se muestran botones grandes **SAVE PROJECT**, **LOAD PROJECT**, **EXPORT ALL LOOPS** y **LOOP / SONG MODE**.
+- **LOOP / SONG MODE** abre otra pantalla a ancho completo. Desde allí elige **COMPOSE**, **LOOP MODE**, **SONG MODE**, **PROJECT** o **HOME**. No hay columnas superpuestas.
+- **LOOP:** 12 pads grandes C1–B1, 16 botones T1–T16 en dos filas, botones **OFF + SC 1–SC 8** para enlazar **una escena completa del secuenciador** (sus 8 pistas y pasos) al pad seleccionado, además de las pistas de audio elegidas. **SAVE PAD/REPLACE PAD**, **LAUNCH**, **EXIT LOOP** y **DELETE PAD** mantienen el comportamiento original y las confirmaciones.
+- **SONG:** pads, orden del arreglo con hasta 8 pasos grandes visibles por página, **+ ADD PAD**, **REMOVE**, **MOVE LEFT/RIGHT**, **PLAY SONG**, **STOP SONG** y **EXPORT SONG**.
+- **Al abrir la APK sin cargar proyecto:** los pads de LOOP y el orden de SONG aparecen **vacíos**, aunque anteriormente hubieras editado otros. **Al cargar un proyecto distinto:** se restauran exclusivamente los pads y el arreglo contenidos en ese archivo, o siguen vacíos si no existen. Las fuentes de muestras y los parámetros de la app conservan su comportamiento de inicio.
+- **Guardado:** usa **SAVE PROJECT** en la ranura deseada para conservar escenas, canción, muestras, loops, secuenciador y ajustes. El antiguo archivo global \`fm1_scenes.dat\` ya no se carga ni se sobreescribe automáticamente; si existía, se conserva intacto como posible copia de recuperación.
+
+**Actualización segura:** la versión 0.41 mantiene el ID de la app Scenes y la misma firma de los anteriores paquetes GitHub, con **versionCode 65**. Para evitar perder acceso a escenas antiguas guardadas solamente en \`fm1_scenes.dat\`, **convierte ese trabajo en un SAVE PROJECT usando 0.40 ANTES de actualizar**. No desinstales la app y exporta siempre SAVE BACKUP. Esta actualización es de Android; no certifica el firmware físico del FM-1.
 
 ## Guía rápida 0.40: 16 pistas + metrónomo
 
@@ -39,7 +50,7 @@ Los modos son **PLAY/REC** (clic durante PLAY y REC), **REC** (solo grabación),
 - **SEQUENCER (0.39):** botón en HOME que abre **8 pistas adicionales**, con 16 pasos por página, patrones 1/4–64/4, samples independientes seleccionados desde LIBRARY, transporte sincronizado y pantalla Light/Dark. [Controles, tempo y firma](docs/FM1_SEQUENCER_039.md).
 - **PLAY, STOP, REC/OVERDUB y CLEAR** en HOME. PLAY y STOP controlan la cinta; durante la primera toma, el transporte puede finalizar la grabación antes de detener la reproducción. REC arma la primera toma y después permite overdub por pista.
 - **Visor de forma de onda** del sample, selección de modo, ventana START/END y voces; **timeline de los loops** con cabezal de reproducción y *scrub* táctil.
-- Barra de herramientas: **tema**, **micrófono**, **LIBRARY**, **PROJECT**. El micrófono permite grabar un sample a partir de un umbral de señal ajustable.
+- Barra de herramientas: **tema**, **micrófono**, **SEQ**, **LIBRARY**, **PROJECT**. El micrófono permite grabar un sample a partir de un umbral de señal ajustable.
 - **BACK/ENTER** en HOME y en LIBRARY: navegar por directorios internos sin abrir el selector de Android. Desde `FM1-SAMPLER`, ENTER abre de nuevo la última carpeta elegida aunque BACK haya dejado la raíz sin elemento seleccionado (corrección 0.38.9).
 - **PRESETS físico**: mueve el selector por carpetas y archivos, un elemento por paso. Al elegir un WAV compatible lo carga **inmediatamente** en la pista activa; ENTER es solo para carpetas y **no** para reproducir un WAV.
 - **LIBRARY** abre la biblioteca interna; botones **+ IMPORT ZIP**, **SAVE BACKUP** e **IMPORT BACKUP**. Los ZIP de paquetes externos no son lo mismo que los ZIP de backup completos.
