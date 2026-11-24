@@ -68,11 +68,6 @@ struct Engine : public oboe::AudioStreamDataCallback, public oboe::AudioStreamEr
                 ->setUsage(oboe::Usage::Media)->setDataCallback(this)->setErrorCallback(this);
             if (dev && attempt < 2) b.setDeviceId(dev);
             r = b.openStream(stream);
-            if (r == oboe::Result::OK && strictPhoneOutput && stream->getDeviceId() != dev) {
-                LOG("MONITOR route mismatch: requested phone device %d, actual %d", dev, stream->getDeviceId());
-                stream->close(); stream.reset(); r = oboe::Result::ErrorInternal;
-                continue;
-            }
             if (r == oboe::Result::OK) break;
             LOG("open failed (attempt %d): %s", attempt, oboe::convertToText(r));
             stream.reset();
@@ -81,6 +76,12 @@ struct Engine : public oboe::AudioStreamDataCallback, public oboe::AudioStreamEr
         streamRaw = stream.get();
         stream->setBufferSizeInFrames(stream->getFramesPerBurst() * 2);
         r = stream->requestStart();
+        if (r == oboe::Result::OK && strictPhoneOutput && stream->getDeviceId() != dev) {
+            LOG("MONITOR route mismatch: requested phone device %d, actual %d", dev, stream->getDeviceId());
+            streamRaw = nullptr;
+            stream->stop(); stream->close(); stream.reset();
+            return -4;
+        }
         LOG("stream started: rate %d burst %d buffer %d sharing %d perf %d dev %d", stream->getSampleRate(), stream->getFramesPerBurst(),
             stream->getBufferSizeInFrames(), (int)stream->getSharingMode(), (int)stream->getPerformanceMode(), stream->getDeviceId());
         return r == oboe::Result::OK ? 0 : -2;
