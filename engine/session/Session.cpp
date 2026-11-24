@@ -1686,7 +1686,8 @@ void Session::captureScene(int slot, uint16_t tracks, int sequencerScene) {
         if (!replacement.filled) return;
         d->scenes[(size_t)slot] = std::move(replacement);
         d->updateSceneMask();
-        d->persistScenes();
+        // Scenes and arrangement belong to explicit .fm1p projects; do not
+        // silently copy performance content into a shared startup file.
     });
 }
 void Session::clearScene(int slot) {
@@ -1697,7 +1698,8 @@ void Session::clearScene(int slot) {
         if (d->activeScene == slot) d->activeScene = -1;
         if (d->songPlaying) { d->songPlaying = false; d->songStep = -1; }
         d->updateSceneMask();
-        d->persistScenes();
+        // Scenes and arrangement belong to explicit .fm1p projects; do not
+        // silently copy performance content into a shared startup file.
     });
 }
 void Session::launchScene(int slot) {
@@ -1756,7 +1758,8 @@ void Session::saveArrangement(const std::vector<int>& order) {
         d->songOrder.clear();
         for (int i : order) if (i >= 0 && i < kScenes && d->songOrder.size() < 64)
             d->songOrder.push_back(i);
-        d->persistScenes();
+        // Scenes and arrangement belong to explicit .fm1p projects; do not
+        // silently copy performance content into a shared startup file.
     });
 }
 
@@ -2605,7 +2608,14 @@ int Session::livePeaks(float* out, int maxBins) const {
 }
 
 // ---- library ----
-void Session::setDataDir(const std::string& dir) { d->dataDir = dir; d->restoreScenes(); }
+void Session::setDataDir(const std::string& dir) {
+    // A fresh app session starts with empty LOOP pads and SONG order. The
+    // historical fm1_scenes.dat is deliberately NOT restored: performance
+    // assets are owned by explicit full-project .fm1p files and are loaded
+    // only when their project is selected. Keep the legacy file untouched
+    // for recovery; never erase it during an upgrade.
+    d->dataDir = dir;
+}
 void Session::setSampleDir(const std::string& dir) { d->sampleDir = dir; }
 std::string Session::dataDir() const { return d->dataDir; }
 std::string Session::sampleDir() const { return d->sampleDir; }
