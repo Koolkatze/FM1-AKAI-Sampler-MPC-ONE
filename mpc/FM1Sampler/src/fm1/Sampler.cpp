@@ -38,15 +38,13 @@ void Sampler::resolveWindow(Voice& v, const SampleBuf*& buf, double& ws, double&
 
 void Sampler::noteOn(int note, int vel) {
     if (!orig_) return;
+    // 0.42.7: first free voice of the mode's pool, otherwise the oldest one (mode-specific limits bound the grain / FFT cost)
+    const int limit = voiceLimit();
     int vi = -1; uint32_t oldest = 0xffffffffu;
-    if (mode_ == PAUL) {   // each voice costs FFTs: at most four at once
-        int active = 0; for (auto& v : voices_) active += v.on;
-        if (active >= kPaulVoices) { for (int i = 0; i < kVoices; i++) if (voices_[i].on && voices_[i].born < oldest) { oldest = voices_[i].born; vi = i; } }
-    }
-    if (vi < 0) for (int i = 0; i < kVoices; i++) if (!voices_[i].on) { vi = i; break; }
-    if (vi < 0) { oldest = 0xffffffffu; for (int i = 0; i < kVoices; i++) if (voices_[i].born < oldest) { oldest = voices_[i].born; vi = i; } }
+    for (int i = 0; i < limit; i++) if (!voices_[i].on) { vi = i; break; }
+    if (vi < 0) for (int i = 0; i < limit; i++) if (voices_[i].born <= oldest) { oldest = voices_[i].born; vi = i; }
     Voice& v = voices_[vi];
-    if (paul_[vi]) paul_[vi]->stop();
+    if (vi < kPaulVoices && paul_[vi]) paul_[vi]->stop();
     v = Voice();
     v.on = true; v.gate = true; v.note = note; v.vel = clampf(vel / 127.f, 0.f, 1.f); v.born = ++bornCounter_;
     v.slice = ((note - kitBase_) % 16 + 16) % 16;
@@ -57,7 +55,7 @@ void Sampler::noteOn(int note, int vel) {
     if (mode_ == ONESHOT) v.env.set(0.002f, 0.01f, 1.f, 0.01f, (float)sr_);
     v.env.gateOn();
     if (mode_ == PAUL) {
-        if (!paul_[vi]) { v.on = false; return; }
+        if (vi >= kPaulVoices || !paul_[vi]) { v.on = false; return; }
         v.paulIdx = vi;
         paul_[vi]->start(v.buf->d.data(), v.buf->frames, v.ws, v.we, paulStretch_);   // the producer thread makes the first hop at once
     }
@@ -69,10 +67,21 @@ void Sampler::noteOff(int note) {
 void Sampler::allOff() { for (auto& v : voices_) v = Voice(); for (auto* p : paul_) if (p) p->stop(); }
 void Sampler::releaseAll() { for (auto& v : voices_) if (v.on && v.gate) { v.gate = false; v.env.gateOff(); } }
 bool Sampler::hasVoices() const { for (auto& v : voices_) if (v.on) return true; return false; }
+int Sampler::voiceLimit() const {
+    const int lim = mode_ == PAUL ? kPaulVoices : mode_ == GRAIN ? kGrainVoices : mode_ == KIT ? kKitVoices : kVoices;
+    return cap_ > 0 ? std::min(lim, cap_) : lim;
+}
+int Sampler::activeVoiceCount() const { int a = 0; for (int i = 0; i < voiceLimit(); ++i) a += voices_[i].on; return a; }
+void Sampler::setVoiceCap(int cap) {
+    if (cap == cap_) return;
+    cap_ = std::max(0, cap);
+    for (int i = voiceLimit(); i < kVoices; i++) if (voices_[i].on) { if (i < kPaulVoices && paul_[i]) paul_[i]->stop(); voices_[i] = Voice(); }
+}
 
 void Sampler::render(float* out, int n) {
     if (!orig_) return;
-    for (auto& v : voices_) if (v.on) renderVoice(v, out, n);
+    const int limit = voiceLimit();
+    for (int i = 0; i < limit; ++i) if (voices_[i].on) renderVoice(voices_[i], out, n);
 }
 
 void Sampler::renderVoice(Voice& v, float* out, int n) {
@@ -87,7 +96,7 @@ void Sampler::renderVoice(Voice& v, float* out, int n) {
     };
     const float gain = 0.8f * v.vel;
     if (mode_ == GRAIN) { renderGrains(v, out, n, rate, gain); return; }
-    PaulStream* ps = mode_ == PAUL && v.paulIdx >= 0 ? paul_[v.paulIdx] : nullptr;
+    PaulStream* ps = mode_ == PAUL && v.paulIdx >= 0 && v.paulIdx < kPaulVoices ? paul_[v.paulIdx] : nullptr;
     if (ps) ps->beginRead();
     const double tailScale = 1.0 / (128.0 * rate);
     for (int i = 0; i < n; i++) {

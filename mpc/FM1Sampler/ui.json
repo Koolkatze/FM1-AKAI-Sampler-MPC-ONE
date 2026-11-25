@@ -252,7 +252,10 @@
           "param": "FM-1 Ctrl",
           "widget": "switch"
         },
-        "empty"
+        {
+          "param": "Polyphony",
+          "widget": "switch"
+        }
       ]
     }
   ]

@@ -1,4 +1,4 @@
-// The sampler instrument: one sample, up to eight voices, six playback algorithms.
+// The sampler instrument: one sample, up to 64 voices, six playback algorithms.
 //   MELODIC  pitched by the note, ADSR, plays the window once
 //   ONESHOT  pitched by the note, always plays the whole window (note off is ignored)
 //   LOOPED   pitched by the note, ADSR, the window loops while the key is held
@@ -6,10 +6,13 @@
 //   GRAIN    a cloud of short overlapping grains picked at random inside the window
 //   PAUL     the window smeared into an endless pad (spectral time stretch)
 //
-// MPC port of engine/dsp/Sampler.h / .cpp. The voice rendering is the phone's, line for line, except:
+// MPC port of engine/dsp/Sampler.h / .cpp (FM1 Sampler 0.42.7). Polyphony per algorithm as the phone's: MELODIC, ONE-SHOT and
+// LOOPED 64 voices, KIT 32, GRAIN 16, PAUL 8; a new note takes the first free voice, otherwise the oldest one.
+// The voice rendering is the phone's, line for line, except:
 //   * the sample, its stretched copy and its slices are owned by the plugin and handed in as plain pointers:
 //     loading, slicing (Slicer.h) and the offline stretch (Stretch.h) run on the plugin's worker thread, so nothing
 //     here allocates or frees memory (the MPC's audio thread must never do either);
+//   * setVoiceCap(): an optional ceiling under those limits (the plugin's "Polyphony" parameter) for a busy MPC One;
 //   * KIT: the slice is (note - kit note) mod 16, so any 16 consecutive MPC pads play the 16 slices in order
 //     (the phone used note - 60);
 //   * GRAIN: the same grains, spawned at the same samples with the same random numbers, but each grain is rendered in its own
@@ -32,7 +35,7 @@ struct SampleBuf {
 class Sampler {
 public:
     enum Mode { MELODIC, ONESHOT, LOOPED, KIT, GRAIN, PAUL, kModes };
-    static constexpr int kVoices = 8, kMaxSlices = 16, kPaulVoices = 4;
+    static constexpr int kVoices = 64, kKitVoices = 32, kGrainVoices = 16, kPaulVoices = 8, kMaxSlices = 16;
 
     explicit Sampler(int engineRate);
     ~Sampler();
@@ -57,7 +60,10 @@ public:
     void releaseAll();  // every voice to its release stage
     void render(float* out /*stereo, added*/, int n);
     bool hasVoices() const;
-    void setPaulStreams(PaulStream* const* streams) { for (int i = 0; i < kVoices; i++) paul_[i] = streams[i]; }   // owned by the plugin
+    int voiceLimit() const;          // the mode's polyphony, under the cap
+    int activeVoiceCount() const;
+    void setVoiceCap(int cap);       // 0 = no cap (the FM1's limits); voices above a lower cap are cut
+    void setPaulStreams(PaulStream* const* streams) { for (int i = 0; i < kPaulVoices; i++) paul_[i] = streams[i]; }   // kPaulVoices, owned by the plugin
 
 private:
     struct Grain { bool on = false; double pos = 0, inc = 0; int age = 0, len = 1; double c0 = 1, c1 = 1, k = 2; };   // c0, c1: cos recurrence of the window
@@ -78,7 +84,8 @@ private:
     float procA_ = 0, procB_ = 1, rangeA_ = 0, rangeB_ = 1, bend_ = 0, atk_ = 0.01f, dec_ = 0.3f, sus_ = 0.8f, rel_ = 0.3f, root_ = 60.f;
     int mode_ = MELODIC, kitBase_ = 36;
     int slices_[kMaxSlices] = {}; int nSlices_ = 0; double sliceEnd_ = 0;
-    Voice voices_[kVoices]; PaulStream* paul_[kVoices] = {};
+    Voice voices_[kVoices]; PaulStream* paul_[kPaulVoices] = {};
+    int cap_ = 0;
     float kitSemis_ = 0.f, grainLen_ = 0.12f, grainScatter_ = 1.f, paulStretch_ = 8.f, paulWidth_ = 1.f; int grainN_ = 7;
     uint32_t bornCounter_ = 0, rng_ = 7;
 };

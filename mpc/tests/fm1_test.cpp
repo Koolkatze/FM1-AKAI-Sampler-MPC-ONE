@@ -141,7 +141,7 @@ int main(int argc, char** argv) {
     const std::string wavDir = argc > 2 ? argv[2] : "";
     enum { kVolume, kFolder, kSample, kAlgo, kStart, kEnd, kSpeed, kPitch, kThreshold, kKitNote, kGrains, kScatter, kStretch, kWidth, kRoot, kAutoRoot,
            kAttack, kDecay, kSustain, kRelease, kLfoRate, kLfoDepth, kLfoTarget, kLfoShape, kArpRate, kArpPattern, kArpOctaves, kArpLength,
-           kExciter, kLofi, kWobble, kRevSend, kRevSize, kDelSend, kDelTime, kDelSync, kDelFeedback, kPan, kScale, kKeyRoot, kOctave, kKeyMode, kBendRange, kFm1Ctrl };
+           kExciter, kLofi, kWobble, kRevSend, kRevSize, kDelSend, kDelTime, kDelSync, kDelFeedback, kPan, kScale, kKeyRoot, kOctave, kKeyMode, kBendRange, kFm1Ctrl, kPolyphony };
 
     if (const char* root = std::getenv("FM1_SAMPLES_ROOT")) {   // a fake drive: FM1 Samples and a LooperX loop
         const std::string r = root;
@@ -151,7 +151,7 @@ int main(int argc, char** argv) {
     }
     Plug p(argv[1]);
     if (!p.e) { std::printf("FAIL  could not load the plugin\n"); return 2; }
-    check(p.e->numParams == 44, "44 parameters");
+    check(p.e->numParams == 45, "45 parameters");
     { std::string s; for (int f = 0; f < 4; f++) { p.setParam(kFolder, f / 99.f); s += p.display(kFolder) + (f < 3 ? " | " : ""); } std::printf("INFO  folders: %s\n", s.c_str()); }
 
     // ---- scenarios: every algorithm through the built-in programs ----
@@ -178,6 +178,26 @@ int main(int argc, char** argv) {
         check(r.peak < 1.0, "  no clipping (master soft clip)");
         if (!wavDir.empty()) writeWav(wavDir + "/" + s.program + ".wav", r);
         render(p, 2.0, {{0, 0xB0, 120, 0}});   // all sound off and let the tails go
+    }
+
+    // ---- full polyphony of 0.42.7 (64 / 32 / 16 / 8 voices) and the Polyphony ceiling ----
+    {
+        struct Pc { const char* program; int voices; int cap; };   // cap: Polyphony choice index (0 FM1, 1 32, 2 16, 3 8)
+        std::printf("\n%-14s %6s %9s %8s %10s %10s %14s\n", "program", "notes", "ceiling", "rms dB", "avg us", "max us", "est. A17 avg");
+        for (Pc pc : {Pc{"Tape Key", 64, 0}, Pc{"Tape Key", 64, 2}, Pc{"Tape Key", 64, 3}, Pc{"Trap Kit", 32, 0}, Pc{"Glow Grains", 16, 0}, Pc{"Glow Grains", 16, 3}, Pc{"Light Paul", 8, 0}}) {
+            p.program(findProgram(p, pc.program)); p.setParam(kPolyphony, pc.cap / 3.f); wait(700);
+            std::vector<Ev> evs;
+            for (int k = 0; k < pc.voices; k++) { const int note = std::string(pc.program) == "Trap Kit" ? 36 + k % 16 : 24 + k; evs.push_back({k * 64, 0x90, (uint8_t)note, 100}); evs.push_back({3 * 44100, 0x80, (uint8_t)note, 0}); }
+            g_realtime = std::string(pc.program) == "Light Paul";
+            Result r = render(p, 3.5, evs);
+            g_realtime = false;
+            static const char* capName[4] = {"FM1", "32", "16", "8"};
+            std::printf("%-14s %6d %9s %8.1f %10.1f %10.1f %12.1f %%\n", pc.program, pc.voices, capName[pc.cap], db(r.rms), r.avgUs, r.maxUs, r.avgUs / 2902.0 * 100.0 * 20.0);
+            char t[96]; std::snprintf(t, sizeof t, "  %s x%d (ceiling %s): finite, audible, no clipping", pc.program, pc.voices, capName[pc.cap]);
+            check(r.finite && db(r.rms) > -40.0 && r.peak < 1.0, t);
+            render(p, 2.0, {{0, 0xB0, 120, 0}});
+        }
+        p.setParam(kPolyphony, 0.f);
     }
 
     // ---- idle cost: no notes, tails finished ----

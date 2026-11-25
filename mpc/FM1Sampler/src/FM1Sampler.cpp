@@ -219,6 +219,7 @@ public:
         kExciter, kLofi, kWobble,                                                         // TAPE (FM1 SEQ page)
         kRevSend, kRevSize, kDelSend, kDelTime, kDelSync, kDelFeedback,                   // FX
         kPan, kScale, kKeyRoot, kOctave, kKeyMode, kBendRange, kFm1Ctrl,                  // KEY (FM1 GLO page) and setup
+        kPolyphony,                                                                       // 1.1: ceiling under the FM1 0.42.7 voice pools
         kNumParams
     };
     enum Algo { A_MELODIC, A_ONESHOT, A_LOOPED, A_KIT, A_GRAIN, A_PAUL };
@@ -229,7 +230,7 @@ public:
         i.name = "FM1 Sampler";
         i.vendor = "FM1";
         i.uniqueId = MPC_FOURCC('F', 'm', '1', 'S');   // == "uid" in plugin.json
-        i.version = 1000;
+        i.version = 1100;
         i.isInstrument = true;
         i.numInputs = 0;
         i.numOutputs = 2;
@@ -284,6 +285,9 @@ public:
         addParam(choiceParam("keymode", "Key Mode", {"Key", "Chord"}, 0));
         addParam(intParam("bend", "Bend Range", 0, 24, 2, "st"));
         addParam(boolParam("fm1ctrl", "FM-1 Ctrl", false));
+        // FM1 = the phone's 0.42.7 pools (Melodic / One-Shot / Looped 64, Kit 32, Granular 16, Paulstretch 8);
+        // 32 / 16 / 8 put a ceiling under them, should many long releases overlap on a busy MPC One.
+        addParam(choiceParam("polyphony", "Polyphony", {"FM1", "32", "16", "8"}, 0));
 
         // Built-in programs: the factory sounds of the FM1 (folders: 1 Bass, 2 Drums, 3 Keys, 4 Pads; files sorted by name)
         preset("Tape Key",       {{kFolder, 3}, {kSample, 6}});
@@ -417,8 +421,8 @@ private:
         engineRate_ = (int)sr;
         if (sampler_) sampler_->allOff();
         sampler_.reset(new Sampler(engineRate_));
-        PaulStream* streams[Sampler::kVoices];
-        for (int i = 0; i < Sampler::kVoices; i++) streams[i] = paul_[(size_t)i].get();
+        PaulStream* streams[Sampler::kPaulVoices];
+        for (int i = 0; i < Sampler::kPaulVoices; i++) streams[i] = paul_[(size_t)i].get();
         sampler_->setPaulStreams(streams);
         tape_.reset(new TapeInsert(engineRate_));
         delay_.reset(new TapeDelay(engineRate_));
@@ -483,6 +487,8 @@ private:
 
         keys_.set(getInt(kScale), getInt(kKeyRoot), getInt(kOctave), getInt(kKeyMode) == 1);
         bendRange_ = (float)getInt(kBendRange);
+        static const int kCaps[4] = {0, 32, 16, 8};
+        sp.setVoiceCap(kCaps[std::min(3, std::max(0, getInt(kPolyphony)))]);
         fm1_ = getBool(kFm1Ctrl);
 
         const int arpRate = getInt(kArpRate);
@@ -761,12 +767,12 @@ private:
         Retirable* r = nullptr;
         while (retire_.pop(r)) {
             Pending pd; pd.obj = r;
-            for (int i = 0; i < Sampler::kVoices; i++) pd.seq[i] = paul_[(size_t)i]->commandSeq();
+            for (int i = 0; i < Sampler::kPaulVoices; i++) pd.seq[i] = paul_[(size_t)i]->commandSeq();
             pendingDelete_.push_back(pd);
         }
         for (size_t k = 0; k < pendingDelete_.size();) {
             bool safe = true;
-            for (int i = 0; i < Sampler::kVoices; i++) if ((int32_t)(paul_[(size_t)i]->ackSeq() - pendingDelete_[k].seq[i]) < 0) { safe = false; break; }
+            for (int i = 0; i < Sampler::kPaulVoices; i++) if ((int32_t)(paul_[(size_t)i]->ackSeq() - pendingDelete_[k].seq[i]) < 0) { safe = false; break; }
             if (safe) { delete pendingDelete_[k].obj; pendingDelete_[k] = pendingDelete_.back(); pendingDelete_.pop_back(); }
             else ++k;
         }
@@ -904,8 +910,8 @@ private:
 
     // worker side
     std::thread worker_, paulThread_; std::atomic<bool> quit_{false};
-    std::unique_ptr<PaulStream> paul_[Sampler::kVoices];
-    struct Pending { Retirable* obj = nullptr; uint32_t seq[Sampler::kVoices] = {}; };
+    std::unique_ptr<PaulStream> paul_[Sampler::kPaulVoices];
+    struct Pending { Retirable* obj = nullptr; uint32_t seq[Sampler::kPaulVoices] = {}; };
     std::vector<Pending> pendingDelete_;
     std::shared_ptr<const SampleCore> core_; uint32_t coreId_ = 0, coreCounter_ = 0;
     Clock::time_point lastScan_;

@@ -11,9 +11,9 @@ equivalen a las pistas del FM1; lo que la app hacía alrededor del motor (secuen
 metrónomo, sampleo) lo hace el propio MPC.
 
 **Sonido idéntico al del móvil**: las pruebas de este repo comparan el port con el `engine/dsp` original muestra a muestra:
-Melodic, One-Shot, Looped y Kit dan exactamente la misma salida; Granular difiere a −137 dB (redondeo de coma flotante).
-Paulstretch es el mismo algoritmo (fases aleatorias, así que nunca hay dos salidas iguales ni en el móvil).
-Basado en el `engine/dsp` de FM1 Sampler 0.42.6.
+Melodic, One-Shot, Looped y Kit dan exactamente la misma salida, también a polifonía completa con robo de voces;
+Granular difiere a −137 dB (redondeo de coma flotante). Paulstretch es el mismo algoritmo (fases aleatorias, así que
+nunca hay dos salidas iguales ni en el móvil). Basado en el `engine/dsp` de **FM1 Sampler 0.42.7**.
 
 ## Instalar
 
@@ -44,7 +44,7 @@ Los Q-Links van **por filas de cuatro**: cada fila es una página K1–K4 del FM
 | **ARP** | Rate (Off, 1 … 64, tresillos), Pattern (Up/Down/UpDn/Conv/Rand), Octaves, Length | | | |
 | **TAPE** | Exciter, Lo-Fi, Wobble (= página SEQ/cinta del FM1) | | | |
 | **FX** | Reverb Send, Reverb Size, Delay Send, Delay Time | Delay Sync (Free o 1/16 … 1/1 al tempo del MPC), Delay FB | | |
-| **KEY** | Scale, Key Root, Octave, Key Mode (Key/Chord) (= GLO del FM1) | Pan, Bend Range, FM-1 Ctrl | | |
+| **KEY** | Scale, Key Root, Octave, Key Mode (Key/Chord) (= GLO del FM1) | Pan, Bend Range, FM-1 Ctrl, Polyphony | | |
 
 Los controles de cada algoritmo solo aparecen con ese algoritmo, como los K3/K4 del FM1.
 
@@ -56,6 +56,11 @@ dispersan), *Paulstretch* (estira la ventana hasta un pad infinito; **Stretch** 
 **Speed / Pitch** (Melodic, One-Shot, Looped) hacen como en el FM1 un estiramiento offline WSOLA de la ventana
 (cambia duración o tono sin tocar lo otro); se calcula en segundo plano unos 0,3 s después de soltar el control.
 **Auto Root** afina las notas al tono detectado del sample (YIN), como el autotune del FM1.
+
+**Polifonía** (0.42.7): Melodic, One-Shot y Looped 64 voces, Kit 32, Granular 16, Paulstretch 8. Una nota nueva toma
+la primera voz libre y, si no hay, la más antigua, como en el móvil. **Polyphony** (página KEY) pone un techo opcional por
+debajo de esos límites: *FM1* (por defecto, los del móvil), 32, 16 u 8. Sirve si muchos releases largos se solapan y la
+MPC One va justa de CPU; 16 es un buen valor en ese caso.
 
 **12 presets** con los sonidos de fábrica: Tape Key, Acoustic Bass, Shiny Keys, Trap Kit, 707 Kit, OP Drums, Glow Grains,
 Light Paul, Classic Loop, Koto Arp, Fuzz Lo-Fi, Phonk Bass.
@@ -108,20 +113,33 @@ archivos) y para la CPU de la MPC One (Cortex-A17 de 32 bits, mucho más lenta q
   (error < −80 dB) y wow/flutter a tasa de control; reverb y delay se duermen cuando su cola baja de −100 dB.
 - All-notes-off (STOP del MPC) suelta las notas con su release; all-sound-off las corta.
 - Kit: el trozo es (nota − Kit Note) mod 16 en vez de nota − 60, para que encaje con los pads.
+- Polyphony: techo opcional bajo los límites de voces de la 0.42.7 (no existe en el móvil; por defecto no limita nada).
 
-CPU estimada en la MPC One (simulador del SDK × 20, la regla que da Akai): reposo ~0,5 %; Tape Key con 8 notas ~9 %
-(igual que SimpleSynth, el sinte de 8 voces de ejemplo del SDK); Kit, Looped, Arp 7–8 %; Granular con 8 notas a la vez
-~22 % (con 1–4 notas 3–11 %); Paulstretch 4 notas ~8–16 % más su hilo en otro núcleo.
+CPU estimada en la MPC One (simulador del SDK × 20, la regla que da Akai; sin medir aún en una MPC real):
+
+| Caso | CPU |
+|---|---|
+| Reposo (sin notas, colas acabadas) | ~0,5 % |
+| Melodic 8 notas (igual que SimpleSynth, el sinte de 8 voces de ejemplo del SDK) | ~9 % |
+| Melodic 64 notas, techo FM1 / 16 / 8 | ~31 % / ~11 % / ~8 % |
+| Kit 32 golpes · Looped · Arp | 7–8 % |
+| Granular 8 notas · 16 notas (techo FM1) · 16 notas con techo 8 | ~23 % · ~41 % · ~24 % |
+| Paulstretch 8 notas | ~19 % más su hilo en otro núcleo |
+
+El coste depende de las voces que suenan, no del límite: con pocas notas a la vez da igual el techo.
 
 ## Compilar y probar
 
 ```sh
 python3 mpc/build_sdcard.py --looperx <LooperX_MPC_Plugins_1.0.0.zip>   # clona el SDK si hace falta, compila, prueba y monta mpc/dist/
-bash mpc/tests/run_tests.sh mpc/.sdk/mpc-plugin-builder-sdk               # pruebas funcionales, CPU y fidelidad contra engine/dsp
+bash mpc/tests/run_tests.sh mpc/.sdk/mpc-plugin-builder-sdk               # pruebas funcionales, CPU y fidelidad contra el motor del móvil
 ```
 
 `build_sdcard.py` compila con el SDK (nativo para pruebas, ARM32 para la MPC One, ARM64 para las MPC nuevas), genera la
 interfaz, valida, pasa el simulador del MPC y escribe `mpc/dist/SD/` y el zip para la tarjeta.
+
+La fidelidad se comprueba contra `mpc/tests/reference/`, copia sin tocar del `engine/dsp` de la 0.42.7 (al portar una
+versión nueva del motor, se actualiza esa copia y las pruebas dicen si el port sigue igual).
 
 Código: `mpc/FM1Sampler/src/FM1Sampler.cpp` (plugin, hilos, parámetros, FM-1), `src/fm1/` (el motor del FM1 adaptado; cada
 archivo cambiado lo explica en su cabecera), `src/kissfft/`.

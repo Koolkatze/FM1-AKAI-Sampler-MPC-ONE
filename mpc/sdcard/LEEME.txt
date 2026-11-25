@@ -24,6 +24,8 @@ Esta tarjeta lleva:
      Paulstr. Fila 2 = Start, End, Speed, Pitch (como HOME en el FM-1).
    - Kit/Slice: 16 pads seguidos a partir de "Kit Note" tocan los 16 trozos (pon Kit Note en la nota del primer pad).
    - Los 4 Q-Links de la MPC One manejan una fila de 4 controles; cambia de fila con el botón Q-Link.
+   - Polifonía como el FM1 0.42.7 (64 voces; Kit 32, Granular 16, Paulstretch 8). Si la MPC va justa con muchos
+     releases largos, baja "Polyphony" (página KEY) a 16.
    - Presets: Tape Key, Acoustic Bass, Shiny Keys, Trap Kit, 707 Kit, OP Drums, Glow Grains, Light Paul,
      Classic Loop, Koto Arp, Fuzz Lo-Fi, Phonk Bass.
 
