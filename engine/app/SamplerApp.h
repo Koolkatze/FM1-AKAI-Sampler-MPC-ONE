@@ -199,6 +199,14 @@ public:
     // Complete project slots: source WAV, current performance clips, COMPOSE,
     // all scenes, SONG order/position, track settings, and transport.
     bool saveFullProject(int slot);
+    void enableRecovery();
+    void requestCheckpoint(bool finishRecording = false);
+    bool checkpointPending() const;
+    bool newFullProject();
+    bool recoveryTransition() const { return recoveryRestoring_; }
+    void setRecoveryView(int view) { recoveryView_ = view; }
+    int restoredView() const { return restoredView_; }
+    uint32_t recoveryNavigationSerial() const { return recoveryNavigationSerial_; }
     bool loadFullProject(int slot);
     bool fullProjectExists(int slot) const;
     int fullProjectOperation() const { return s_.projectOperation(); }
@@ -258,6 +266,8 @@ private:
     void applyAlgo(int t); void applyEnv(int t); void applyLfo(int t); void applyHome(int t, bool commit = false); void applyArp(int t); void applyRoot(int t); void applySeq(int t); void applyMix(int t);
     void applyFx();
     void applyLoadedProject(const Session::LoadedProject& project);
+    bool saveProjectSnapshot(int slot, bool force = false);
+    void tickRecovery(uint32_t now);
     void queueCommit(int t);
     Knob cont(const char* name, float* v, std::function<std::string(float)> fmt, std::function<void()> apply, float stepSize = 0.02f, bool commit = false);
     Knob choice(const char* name, int* v, std::vector<std::string> opts, std::function<void()> apply);
@@ -337,6 +347,11 @@ private:
     std::vector<int> songOrder_;
     int mic_ = 0, micTrack_ = 0;
     int lastProjectOperation_ = 0;
+    bool recoveryEnabled_ = false, recoveryRestoring_ = false, recoveryNew_ = false;
+    bool recoveryRequested_ = false, recoveryFinishing_ = false, recoveryWriting_ = false, recoveryBlocked_ = false;
+    uint32_t recoveryLastAttempt_ = 0, recoveryLastWrite_ = 0, recoveryNavigationSerial_ = 0;
+    uint64_t recoveryFingerprint_ = 0, recoveryPendingFingerprint_ = 0;
+    int recoveryView_ = 0, restoredView_ = 0;
     int lastSampleVersion_ = 0, lastSampleFails_ = 0;
     uint32_t commitAt_ = 0; int commitTrack_ = -1;
     std::string toast_; uint32_t toastUntil_ = 0;

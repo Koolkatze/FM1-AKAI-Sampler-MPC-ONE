@@ -971,6 +971,10 @@ struct FullProjectSettings {
     float tempoCorrection = 1.f;
     std::array<std::array<std::array<uint8_t, SamplerApp::kSeqSteps>, SamplerApp::kSeqTracks>, Session::kScenes> padVelocity{}, padNote{};
     std::array<uint8_t, Session::kScenes> padBeats{};
+    // v9 is private current-session recovery only; manual projects remain v8.
+    int32_t recoveryPadSlot = -1, recoveryView = 0;
+    uint16_t recoveryPadWritable = 0;
+    uint8_t recoveryPadCompose = 0, recoveryReserved = 0;
 };
 static_assert(std::is_trivially_copyable_v<FullProjectSettings>);
 }
@@ -998,9 +1002,15 @@ void SamplerApp::submitName(int kind, const std::string& name) {
 
 bool SamplerApp::fullProjectExists(int slot) const { return s_.projectExists(slot); }
 bool SamplerApp::saveFullProject(int slot) {
-    if (recordingNow() || mic_ != 0) { say("FINISH RECORDING FIRST"); return false; }
     if (slot < 0 || slot >= Session::kProjectSlots) return false;
+    return saveProjectSnapshot(slot);
+}
+bool SamplerApp::saveProjectSnapshot(int slot, bool force) {
+    const bool recovery = slot == Session::kRecoverySlot;
+    if (recordingNow() || mic_ != 0) { if (!recovery) say("FINISH RECORDING FIRST"); return false; }
     FullProjectSettings m{};
+    if (recovery) { m.version = 9; m.recoveryPadSlot = padEditSlot_; m.recoveryPadCompose = padCompose_; m.recoveryPadWritable = padWritable_; m.recoveryView = recoveryView_; }
+    else m.bytes = offsetof(FullProjectSettings, recoveryPadSlot);
     std::copy_n(ts_.begin(), 8, m.tracks.begin());
     std::copy_n(ts_.begin() + 8, 8, m.extraTracks.begin());
     m.metronomeSelected = metroSelected_;
@@ -1045,7 +1055,7 @@ bool SamplerApp::saveFullProject(int slot) {
                 m.seqScenesNote[(size_t)scene][(size_t)t][(size_t)step] = hit.note;
             }
     }
-    m.seqEditedStep = seqEditStep_; m.sequencerMode = sequencerMode_ && !padEditing();
+    m.seqEditedStep = seqEditStep_; m.sequencerMode = sequencerMode_ && (recovery || !padEditing());
     m.sequencerEnabled = 1;
     m.tempoBpm = tempoFlexBpm_; m.pitchedTempo = pitchedTempo_;
     m.tempoCorrection = tempoCorrection_;
@@ -1068,11 +1078,11 @@ bool SamplerApp::saveFullProject(int slot) {
         std::snprintf(storedName.data(), storedName.size(), "%s", label.c_str());
         sources[(size_t)i] = trackSourcePaths_[(size_t)i];
         if (sources[(size_t)i].empty() && hasSample(i)) {
-            say("SAMPLE SOURCE MISSING ON TRACK " + std::to_string(i + 1));
+            if (!recovery) say("SAMPLE SOURCE MISSING ON TRACK " + std::to_string(i + 1));
             return false; // never silently save a project without its sound
         }
         if (!sources[(size_t)i].empty() && !std::filesystem::exists(sources[(size_t)i])) {
-            say("SAMPLE FILE MISSING ON TRACK " + std::to_string(i + 1));
+            if (!recovery) say("SAMPLE FILE MISSING ON TRACK " + std::to_string(i + 1));
             return false;
         }
     }
@@ -1080,13 +1090,29 @@ bool SamplerApp::saveFullProject(int slot) {
     for (int i = 0; i < kSeqTracks; ++i) {
         const auto& source = seqSourcePaths_[(size_t)i];
         if (!source.empty() && !std::filesystem::is_regular_file(source)) {
-            say("SEQ SAMPLE MISSING ON TRACK " + std::to_string(i + 1));
+            if (!recovery) say("SEQ SAMPLE MISSING ON TRACK " + std::to_string(i + 1));
             return false;
         }
         sequencerSources[(size_t)i] = source;
     }
-    std::vector<uint8_t> bytes(sizeof(m));
+    std::vector<uint8_t> bytes(m.bytes);
     std::memcpy(bytes.data(), &m, bytes.size());
+    if (recovery) {
+        uint64_t hash = 14695981039346656037ULL;
+        auto mix = [&](uint64_t x) { hash ^= x; hash *= 1099511628211ULL; };
+        for (uint8_t x : bytes) mix(x);
+        for (const auto& path : sources) { for (unsigned char x : path) mix(x); mix(0); }
+        for (const auto& path : sequencerSources) { for (unsigned char x : path) mix(x); mix(0); }
+        mix(s_.recoveryRevision()); mix((uint64_t)st_.loopSamples); mix(st_.sceneMask);
+        mix(st_.playing); mix(st_.activeScene + 1); mix(st_.queuedScene + 1); mix(st_.songStep + 1);
+        mix(st_.compositionTracks); mix(st_.compositionValid);
+        for (int t = 0; t < kTracks; ++t) mix(st_.track_has_clip[t]);
+        if (!st_.playing) mix((uint64_t)std::max(0., st_.pos));
+        if (!force && hash == recoveryFingerprint_ && !(st_.playing && nowMs_ - recoveryLastWrite_ >= 10000)) return true;
+        if (!s_.saveProject(slot, std::move(bytes), sources, sequencerSources)) return false;
+        recoveryPendingFingerprint_ = hash; recoveryWriting_ = true;
+        return true;
+    }
     if (!s_.saveProject(slot, std::move(bytes), sources, sequencerSources)) {
         say("PROJECT BUSY OR INVALID"); return false;
     }
@@ -1094,6 +1120,7 @@ bool SamplerApp::saveFullProject(int slot) {
     return true;
 }
 bool SamplerApp::loadFullProject(int slot) {
+    if (slot < 0 || slot >= Session::kProjectSlots) return false;
     if (songExportState_ == 1) { say("FINISH SONG EXPORT FIRST"); return false; }
     if (recordingNow() || mic_ != 0) { say("FINISH RECORDING FIRST"); return false; }
     if (!s_.loadProject(slot)) { say("EMPTY PROJECT OR BUSY"); return false; }
@@ -1106,7 +1133,8 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
     const bool oldProject = project.appState.size() == legacySize;
     const bool v4Project = project.appState.size() == offsetof(FullProjectSettings, seqScenesVelocity);
     const bool v5Project = project.appState.size() == offsetof(FullProjectSettings, extraTracks);
-    const bool v8Project = project.appState.size() == sizeof(FullProjectSettings);
+    const bool v9Project = project.appState.size() == sizeof(FullProjectSettings);
+    const bool v8Project = v9Project || project.appState.size() == offsetof(FullProjectSettings, recoveryPadSlot);
     const bool v7Project = v8Project || project.appState.size() == offsetof(FullProjectSettings, padVelocity);
     const bool v6Project = v7Project || project.appState.size() == offsetof(FullProjectSettings, tempoCorrection);
     if (!oldProject && !v4Project && !v5Project && !v6Project) {
@@ -1115,7 +1143,7 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
     FullProjectSettings m{};
     std::memcpy(&m, project.appState.data(), project.appState.size());
     if (m.magic != 0x32505041 ||
-        (oldProject ? (m.version != 2 && m.version != 3) : v4Project ? m.version != 4 : v5Project ? m.version != 5 : v8Project ? m.version != 8 : v7Project ? m.version != 7 : m.version != 6) ||
+        (oldProject ? (m.version != 2 && m.version != 3) : v4Project ? m.version != 4 : v5Project ? m.version != 5 : v9Project ? m.version != 9 : v8Project ? m.version != 8 : v7Project ? m.version != 7 : m.version != 6) ||
         m.bytes != project.appState.size() || m.songSize > 64 ||
         m.selectedTrack < 0 || m.selectedTrack >= kTracks ||
         m.page < 0 || m.page >= kPages || m.selectedScene < 0 ||
@@ -1266,7 +1294,73 @@ void SamplerApp::applyLoadedProject(const Session::LoadedProject& project) {
     s_.setLoopSpeed(loopSpeedOf(loopSpeed_));
     s_.setMicThreshold(micThrOf(micThr_));
     for (int t = 0; t < kTracks; ++t) applyAll(t);
-    say("PROJECT " + std::to_string(project.slot + 1) + " RESTORED");
+    if (project.slot == Session::kRecoverySlot) {
+        if (v9Project && m.recoveryPadSlot >= 0 && m.recoveryPadSlot < Session::kScenes && st_.activeScene == m.recoveryPadSlot) {
+            padEditSlot_ = m.recoveryPadSlot; padCompose_ = m.recoveryPadCompose != 0; padWritable_ = m.recoveryPadWritable;
+            globalSeqScene_ = seqScene_;
+            if (!padCompose_) {
+                switchSequencerBank(kSeqScenes + padEditSlot_); sequencerMode_ = true; page_ = P_STEP;
+                seqPage_ = std::clamp((int)m.seqPage, 0, (seqBeats_ * 4 - 1) / 16);
+                seqEditStep_ = std::clamp((int)m.seqEditedStep, 0, kSeqSteps - 1);
+            }
+            s_.restorePadEditor(padEditSlot_, padCompose_ ? padWritable_ : 0);
+        }
+        restoredView_ = v9Project ? std::clamp((int)m.recoveryView, 0, 4) : 0;
+        recoveryView_ = restoredView_; ++recoveryNavigationSerial_;
+        say(recoveryNew_ ? "NEW PROJECT" : "SESSION RESTORED");
+    } else say("PROJECT " + std::to_string(project.slot + 1) + " RESTORED");
+}
+
+void SamplerApp::enableRecovery() {
+    if (recoveryEnabled_) return;
+    recoveryEnabled_ = true;
+    if (s_.projectExists(Session::kRecoverySlot)) {
+        recoveryRestoring_ = s_.loadProject(Session::kRecoverySlot);
+        recoveryBlocked_ = !recoveryRestoring_;
+    }
+}
+void SamplerApp::requestCheckpoint(bool finishRecording) {
+    if (!recoveryEnabled_) return;
+    recoveryRequested_ = true;
+    recoveryFinishing_ |= finishRecording;
+    if (finishRecording && recordingNow()) endRecording();
+}
+bool SamplerApp::checkpointPending() const {
+    return recoveryRestoring_ || recoveryRequested_ || recoveryWriting_;
+}
+bool SamplerApp::newFullProject() {
+    if (recordingNow() || mic_ != 0 || songExportState_ == 1 || s_.loopExportStatus() == 1) {
+        say("FINISH RECORDING OR EXPORT FIRST"); return false;
+    }
+    FullProjectSettings m{};
+    m.version = 9; m.recoveryView = 0;
+    m.sceneTrackMask16 = 0xffff; m.metronomeMode = 2;
+    m.seqScenesBeats.fill(4); m.padBeats.fill(4);
+    for (auto& row : m.seqNote) row.fill(60);
+    for (auto& scene : m.seqScenesNote) for (auto& row : scene) row.fill(60);
+    for (auto& scene : m.padNote) for (auto& row : scene) row.fill(60);
+    std::vector<uint8_t> bytes(sizeof(m)); std::memcpy(bytes.data(), &m, bytes.size());
+    if (!s_.newRecoveryProject(std::move(bytes))) { say("PROJECT BUSY - TRY AGAIN"); return false; }
+    recoveryRestoring_ = recoveryNew_ = true; recoveryRequested_ = false;
+    say("CREATING NEW PROJECT"); return true;
+}
+void SamplerApp::tickRecovery(uint32_t now) {
+    if (!recoveryEnabled_) return;
+    if (recoveryWriting_ && s_.recoveryOperation() != 1) {
+        recoveryWriting_ = false;
+        if (s_.recoveryOperation() == 2) {
+            recoveryFingerprint_ = recoveryPendingFingerprint_; recoveryLastWrite_ = now;
+        } else say("SESSION AUTO SAVE FAILED - PREVIOUS CHECKPOINT KEPT");
+    }
+    if (recoveryBlocked_) { recoveryRequested_ = false; recoveryFinishing_ = false; return; }
+    if (recoveryRestoring_ || recoveryWriting_ || s_.projectOperation() == 3) return;
+    if (recordingNow() || mic_ != 0) return;
+    if (!recoveryRequested_ && now - recoveryLastAttempt_ < 3000) return;
+    recoveryLastAttempt_ = now;
+    const bool forced = recoveryRequested_;
+    recoveryRequested_ = false; recoveryFinishing_ = false;
+    if (!saveProjectSnapshot(Session::kRecoverySlot, forced) && forced)
+        say("SESSION AUTO SAVE FAILED - PREVIOUS CHECKPOINT KEPT");
 }
 
 // ---- looper, recorder ----
@@ -1640,8 +1734,13 @@ void SamplerApp::tick(uint32_t now) {
     Session::LoadedProject loadedProject;
     const bool loadedThisTick = s_.takeLoadedProject(loadedProject);
     if (loadedThisTick) {
+        st_ = s_.status();
         applyLoadedProject(loadedProject);
         st_ = s_.status();
+        if (loadedProject.slot == Session::kRecoverySlot) {
+            recoveryRestoring_ = false; recoveryNew_ = false; recoveryBlocked_ = false;
+            recoveryFingerprint_ = 0; recoveryLastAttempt_ = now;
+        } else if (recoveryEnabled_) recoveryRequested_ = true;
     }
     // Initial free recording chooses its own measured BPM. Scene changes can
     // also change BPM. Keep the Tempo Flex knob on the audible transport value
@@ -1672,7 +1771,10 @@ void SamplerApp::tick(uint32_t now) {
             pendingProjectLabelSlot_ = -1; pendingProjectLabel_.clear();
             say("PROJECT SAVE FAILED");
         }
-        else if (projectState == -2) say("PROJECT LOAD FAILED");
+        else if (projectState == -2) {
+            if (recoveryRestoring_) { recoveryRestoring_ = false; recoveryNew_ = false; recoveryBlocked_ = true; say("SESSION RECOVERY FAILED - SAVED FILE KEPT"); }
+            else say("PROJECT LOAD FAILED");
+        }
     }
     if (!scenesLoaded_ && st_.arrangementLoaded) {
         scenesLoaded_ = true;
@@ -1724,6 +1826,7 @@ void SamplerApp::tick(uint32_t now) {
         draw(now);
         leds();
     }
+    tickRecovery(now);
     flush(now);
 }
 

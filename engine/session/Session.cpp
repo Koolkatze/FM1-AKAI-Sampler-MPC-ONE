@@ -24,6 +24,8 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <fcntl.h>
+#include <unistd.h>
 
 namespace {
 constexpr int kBlock = 256;
@@ -195,6 +197,8 @@ struct Session::Impl {
         float reverbSize = 0.7f, delaySeconds = 0.4f, delayFeedback = 0.4f;
     };
     std::atomic<int> projectOp{0};
+    std::atomic<int> recoveryOp{0};
+    std::atomic<uint64_t> recoveryRevision{0};
     std::atomic<int> loopExportOp{0};
     mutable std::mutex projectMtx;
     std::shared_ptr<Session::LoadedProject> projectReady;
@@ -546,6 +550,7 @@ struct Session::Impl {
         return mask;
     }
     void savePadTrack(int i) {
+        ++recoveryRevision;
         if (padEdit < 0 || !(padWritable & (1u << i)) || activeScene != padEdit) return;
         auto& sc = scenes[(size_t)padEdit];
         auto& t = *tracks[(size_t)i];
@@ -874,6 +879,7 @@ struct Session::Impl {
         pos = 0; playing = false;
     }
     void freeStop() {
+        ++recoveryRevision;
         if (freeArmed) { freeArmed = false; a_freeArmed = false; return; }   // cancelled before any sound
         if (!freeRec) return;
         freeRec = false;
@@ -1740,6 +1746,7 @@ void Session::captureScene(int slot, uint16_t tracks, int sequencerScene) {
         // Invalid/empty replacement must leave the previously saved slot intact.
         if (!replacement.filled) return;
         d->scenes[(size_t)slot] = std::move(replacement);
+        ++d->recoveryRevision;
         d->updateSceneMask();
         // Scenes and arrangement belong to explicit .fm1p projects; do not
         // silently copy performance content into a shared startup file.
@@ -1749,6 +1756,7 @@ void Session::clearScene(int slot) {
     if (slot < 0 || slot >= kScenes) return;
     d->post([this, slot] {
         d->scenes[(size_t)slot] = Impl::Scene{};
+        ++d->recoveryRevision;
         if (d->pendingScene == slot) d->pendingScene = -1;
         if (d->activeScene == slot) d->activeScene = -1;
         if (d->songPlaying) { d->songPlaying = false; d->songStep = -1; }
@@ -2291,6 +2299,7 @@ constexpr uint32_t kProjectVersion = 5; // 5: 16 looper tracks; v2/3/4 remain re
 constexpr uint64_t kProjectMaxBytes = 536870912ULL; // 512 MiB decompressed
 constexpr uint32_t kSampleMax = 67108864U; // 64 MiB per WAV
 std::string projectPath(const std::string& dir, int slot) {
+    if (slot == Session::kRecoverySlot) return dir + "/CURRENT_SESSION.fm1p";
     return dir + "/project_" + std::to_string(slot + 1) + ".fm1p";
 }
 struct ProjectWrite {
@@ -2457,6 +2466,19 @@ bool writeProjectFile(const std::string& dir, int slot, const Session::Impl::Pro
     }
     w.out.close();
     if (!ok) { fs::remove(tmp, ec); return false; }
+    if (slot == Session::kRecoverySlot) {
+        // Flush data before an atomic replacement, so an interrupted save never
+        // removes the previous complete checkpoint. Android/Linux use POSIX rename.
+        const int fd = ::open(tmp.c_str(), O_RDONLY);
+        if (fd < 0) { fs::remove(tmp, ec); return false; }
+        const bool synced = ::fsync(fd) == 0; ::close(fd);
+        if (!synced) { fs::remove(tmp, ec); return false; }
+        fs::rename(tmp, path, ec);
+        if (ec) { fs::remove(tmp, ec); return false; }
+        const int folderFd = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY);
+        if (folderFd >= 0) { ::fsync(folderFd); ::close(folderFd); }
+        return true;
+    }
     // On a replaced slot, preserve the old archive until the new one is committed.
     fs::remove(backup, ec);
     const bool hadOld = fs::exists(path, ec);
@@ -2545,36 +2567,48 @@ bool readProjectFile(const std::string& file, Session::Impl::ProjectSnapshot& sn
 }  // namespace
 
 bool Session::projectExists(int slot) const {
-    if (slot < 0 || slot >= kProjectSlots || d->dataDir.empty()) return false;
+    if (slot < 0 || slot > kRecoverySlot || d->dataDir.empty()) return false;
     std::error_code ec; return std::filesystem::is_regular_file(projectPath(d->dataDir, slot), ec);
 }
 int Session::projectOperation() const { return d->projectOp.load(); }
+int Session::recoveryOperation() const { return d->recoveryOp.load(); }
+uint64_t Session::recoveryRevision() const { return d->recoveryRevision.load(); }
+void Session::restorePadEditor(int slot, uint16_t writable) {
+    d->post([this, slot, writable] {
+        if (slot >= 0 && slot < kScenes && d->activeScene == slot && d->scenes[(size_t)slot].filled) {
+            d->padEdit = slot; d->padWritable = writable;
+        }
+    });
+}
 bool Session::saveProject(int slot, std::vector<uint8_t> meta,
                           const std::array<std::string, kTracks>& paths,
                           const std::array<std::string, kSeqTracks>& seqPaths) {
-    if (slot < 0 || slot >= kProjectSlots || d->dataDir.empty() ||
+    if (slot < 0 || slot > kRecoverySlot || d->dataDir.empty() ||
         meta.empty() || meta.size() > 131072) return false;
-    int state = d->projectOp.load();
+    const bool recovery = slot == kRecoverySlot;
+    if (recovery && d->projectOp.load() == 3) return false;
+    auto* op = recovery ? &d->recoveryOp : &d->projectOp;
+    int state = op->load();
     while (state != 1 && state != 3) {
-        if (d->projectOp.compare_exchange_weak(state, 1)) break;
+        if (op->compare_exchange_weak(state, 1)) break;
     }
-    if (d->projectOp.load() != 1 || state == 1 || state == 3) return false;
-    d->post([this, slot, meta = std::move(meta), paths, seqPaths]() mutable {
+    if (op->load() != 1 || state == 1 || state == 3) return false;
+    d->post([this, slot, op, meta = std::move(meta), paths, seqPaths]() mutable {
         if (d->freeRec || d->freeArmed || d->sampling || d->armedWait) {
-            d->projectOp = -1; return;
+            *op = -1; return;
         }
-        for (const auto& t : d->tracks) if (t->clipRec) { d->projectOp = -1; return; }
+        for (const auto& t : d->tracks) if (t->clipRec) { *op = -1; return; }
         auto snapshot = d->captureProject(std::move(meta), paths, seqPaths);
         const auto folder = d->dataDir;
         const int rate = d->sr;
-        d->job([this, slot, folder, rate, snapshot = std::move(snapshot)]() mutable {
-            d->projectOp = writeProjectFile(folder, slot, snapshot, rate) ? 2 : -1;
+        d->job([slot, folder, rate, op, snapshot = std::move(snapshot)]() mutable {
+            *op = writeProjectFile(folder, slot, snapshot, rate) ? 2 : -1;
         });
     });
     return true;
 }
 bool Session::loadProject(int slot) {
-    if (slot < 0 || slot >= kProjectSlots || !projectExists(slot)) return false;
+    if (slot < 0 || slot > kRecoverySlot || !projectExists(slot) || d->recoveryOp.load() == 1) return false;
     int state = d->projectOp.load();
     while (state != 1 && state != 3) {
         if (d->projectOp.compare_exchange_weak(state, 3)) break;
@@ -2589,7 +2623,7 @@ bool Session::loadProject(int slot) {
         if (!valid) { d->projectOp = -2; return; }
         namespace fs = std::filesystem;
         std::error_code ec;
-        const std::string target = folder + "/project_assets/slot_" + std::to_string(slot + 1);
+        const std::string target = folder + "/project_assets/" + (slot == kRecoverySlot ? std::string("current_session") : "slot_" + std::to_string(slot + 1));
         fs::create_directories(target, ec);
         if (ec) { d->projectOp = -2; return; }
         std::array<std::string, kTracks> paths{};
@@ -2640,6 +2674,29 @@ bool Session::loadProject(int slot) {
         result->seqSamplePaths = std::move(seqPaths);
         d->post([this, snap = std::move(snap), result]() mutable {
             d->installProject(std::move(snap));
+            { std::lock_guard<std::mutex> lock(d->projectMtx); d->projectReady = result; }
+            d->projectOp = 4;
+        });
+    });
+    return true;
+}
+bool Session::newRecoveryProject(std::vector<uint8_t> metadata) {
+    if (d->dataDir.empty() || metadata.empty() || metadata.size() > 131072 || d->recoveryOp.load() == 1) return false;
+    int state = d->projectOp.load();
+    do { if (state == 1 || state == 3) return false; }
+    while (!d->projectOp.compare_exchange_weak(state, 3));
+    const auto folder = d->dataDir;
+    const int sr = d->sr;
+    d->job([this, folder, sr, metadata = std::move(metadata)]() mutable {
+        Impl::ProjectSnapshot empty{};
+        empty.appState = metadata;
+        // Commit the empty session before clearing live state. Saved slots and
+        // sample library are never changed by this operation.
+        if (!writeProjectFile(folder, kRecoverySlot, empty, sr)) { d->projectOp = -2; return; }
+        auto result = std::make_shared<LoadedProject>();
+        result->slot = kRecoverySlot; result->appState = std::move(metadata);
+        d->post([this, empty = std::move(empty), result]() mutable {
+            d->installProject(std::move(empty));
             { std::lock_guard<std::mutex> lock(d->projectMtx); d->projectReady = result; }
             d->projectOp = 4;
         });

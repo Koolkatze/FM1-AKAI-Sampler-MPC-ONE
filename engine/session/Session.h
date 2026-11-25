@@ -154,6 +154,7 @@ public:
     // All disk work runs off the audio callback. A loaded payload is applied
     // atomically on the audio thread before the UI receives its metadata.
     static constexpr int kProjectSlots = 16;
+    static constexpr int kRecoverySlot = kProjectSlots; // private CURRENT_SESSION, never a user slot
     struct LoadedProject {
         int slot = -1;
         std::vector<uint8_t> appState;
@@ -164,6 +165,10 @@ public:
                      const std::array<std::string, kTracks>& samplePaths,
                      const std::array<std::string, kSeqTracks>& seqSamplePaths);
     bool loadProject(int slot);
+    bool newRecoveryProject(std::vector<uint8_t> metadata);
+    int recoveryOperation() const;
+    uint64_t recoveryRevision() const;
+    void restorePadEditor(int slot, uint16_t writable);
     bool takeLoadedProject(LoadedProject& output);
     bool projectExists(int slot) const;
     int projectOperation() const; // 0 idle, 1 saving, 2 saved, -1 failed, 3 loading, 4 loaded, -2 failed
