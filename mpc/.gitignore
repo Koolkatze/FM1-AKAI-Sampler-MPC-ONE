@@ -1,0 +1,4 @@
+# build outputs and the SDK checkout made by build_sdcard.py
+dist/
+.sdk/
+FM1Sampler/build/

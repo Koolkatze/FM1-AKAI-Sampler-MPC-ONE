@@ -1,0 +1,52 @@
+FM1 Sampler + LooperX para Akai MPC One
+=======================================
+
+Esta tarjeta lleva:
+  VST2 Plugins/FM1 - VST - FM1 Sampler     el FM1 Sampler como instrumento (6 algoritmos, 17 samples de fábrica)
+  VST2 Plugins/LooperX - VST - ...         los 22 plugins de LooperX (Looper, Pads, Granular y 19 efectos)
+  FM1 Samples/                             pon aquí tus WAV para el FM1 (también en subcarpetas)
+  LooperX/Samples, LooperX/Loops           carpetas de LooperX (el FM1 también las lee)
+  LEEME_LooperX.txt                        manual de LooperX
+
+1. Requisitos
+   - MPC OS 3.10.1 o posterior (Preferences > Info).
+   - Preferences > Enhancements (Beta): activa "Enable Enhancements" y "External Plugin Support".
+
+2. Instalar
+   Copia TODO el contenido de esta carpeta a la RAÍZ de la tarjeta SD (o de un USB). Debe quedar:
+     <SD>/VST2 Plugins/FM1 - VST - FM1 Sampler/plugin.json
+   Mete la SD o reinicia el MPC. Los plugins están en el navegador, en "External Plugins":
+   fabricante "FM1" (FM1 Sampler) y "LooperX".
+
+3. FM1 Sampler en dos minutos
+   - Pista nueva > Plugin > External Plugins > FM1 > FM1 Sampler. Suena "Tape Key".
+   - Página SAMPLE: Folder y Sample eligen el sonido; Algorithm: Melodic, One-Shot, Looped, Kit/Slice, Granular,
+     Paulstr. Fila 2 = Start, End, Speed, Pitch (como HOME en el FM-1).
+   - Kit/Slice: 16 pads seguidos a partir de "Kit Note" tocan los 16 trozos (pon Kit Note en la nota del primer pad).
+   - Los 4 Q-Links de la MPC One manejan una fila de 4 controles; cambia de fila con el botón Q-Link.
+   - Polifonía como el FM1 0.42.7 (64 voces; Kit 32, Granular 16, Paulstretch 8). Si la MPC va justa con muchos
+     releases largos, baja "Polyphony" (página KEY) a 16.
+   - Presets: Tape Key, Acoustic Bass, Shiny Keys, Trap Kit, 707 Kit, OP Drums, Glow Grains, Light Paul,
+     Classic Loop, Koto Arp, Fuzz Lo-Fi, Phonk Bass.
+
+4. Los controles de la MPC One
+   - Pestañas de la pantalla: SAMPLE, ENV/LFO, ARP, TAPE, FX, KEY (las páginas del FM-1).
+   - Q-Links: los 4 knobs manejan la fila de 4 controles seleccionada (como K1-K4 del FM-1). Toca un control de otra
+     fila, o pulsa Q-LINK, para cambiar de fila.
+   - Doble toque o pulsar la rueda: editor grande o menú. Rueda: cambia el control; SHIFT + rueda: ajuste fino.
+   - Pads: tocan el FM1 (la velocidad es el volumen). En Kit/Slice, 16 pads seguidos desde "Kit Note" (36 = C1).
+   - PLAY/STOP: el arpegiador y Delay Sync siguen el tempo del MPC. STOP suelta las notas con su release.
+   - El proyecto del MPC guarda todos los ajustes y la ruta del sample.
+
+5. Grabar y tocarlo con el FM1
+   Un instrumento del MPC no recibe audio. Graba con LooperX Looper y usa Export WAV: el loop aparece en
+   LooperX/Loops y el FM1 lo ve en la carpeta "SD:LX Loops". O guarda un sample del MPC en "FM1 Samples".
+
+6. Si algo va mal
+   Los plugins de terceros corren dentro del MPC: un fallo puede colgarlo. Están probados en el simulador del SDK
+   y con pruebas propias, todavía NO en una MPC real. Guarda a menudo. Para quitar un plugin, borra su carpeta
+   de "VST2 Plugins".
+
+Código y documentación:
+  https://github.com/Koolkatze/FM1-AKAI-Sampler-MPC-ONE   (README: guía completa de controles)
+  https://github.com/Koolkatze/AKAI-LooperX-MPC-ONE
