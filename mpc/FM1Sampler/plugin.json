@@ -1,0 +1,17 @@
+{
+  "name": "FM1 Sampler",
+  "manufacturer": "FM1",
+  "version": "1.0.0",
+  "format": "vst2",
+  "kind": "instrument",
+  "uid": "Fm1S",
+  "numInputs": 0,
+  "numOutputs": 2,
+  "category": "Sampler",
+  "file32": "VST/fm1-sampler-arm32.so",
+  "file64": "VST/fm1-sampler-arm64.so",
+  "description": "El motor de sampler del FM1 Sampler (Koolkatze/fm1-sampler) como instrumento para MPC: 6 algoritmos (Melodic, One-Shot, Looped, Kit/Slice, Granular, Paulstretch), envolvente, LFO, arpegiador, escalas y acordes, cinta, reverb y delay.",
+  "author": "Koolkatze",
+  "url": "https://github.com/Koolkatze/FM1-AKAI-Sampler-MPC-ONE",
+  "license": "Motor FM1: Koolkatze/fm1-sampler (fork de ferluht/fm1-sampler, sin licencia declarada). kissfft: BSD-3-Clause. Framework del SDK de Akai: MIT."
+}

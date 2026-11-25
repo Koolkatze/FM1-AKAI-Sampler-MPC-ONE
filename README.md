@@ -1,5 +1,7 @@
 # FM1 Sampler — Android + M-VAVE FM-1
 
+> **Plugin para Akai MPC One**: el motor de este sampler convertido en plugin oficial para MPC (MPC OS 3.10.1+), listo para la tarjeta SD junto a LooperX. Ver [`mpc/README.md`](mpc/README.md).
+
 Sampler, editor de audio y **looper de 16 pistas** para Android. El teléfono ejecuta el motor de audio, la biblioteca y la interfaz; el **M-VAVE FM-1** puede actuar como superficie de control MIDI por **USB**, con botones, teclado y encoders. El motor y la interfaz se encuentran en `engine/`; Android integra ese motor mediante JNI.
 
 > **Versión 0.42.6 (en validación):** recuperación automática de la sesión activa y NEW PROJECT, sin modificar los 16 slots guardados.

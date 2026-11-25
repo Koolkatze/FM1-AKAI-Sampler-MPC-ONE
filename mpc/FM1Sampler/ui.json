@@ -1,0 +1,259 @@
+{
+  "kit": {
+    "theme": "amber",
+    "accent": "ffff5a0a"
+  },
+  "qlinkGroups": "rows",
+  "style": {
+    "background": "ff111111"
+  },
+  "pages": [
+    {
+      "name": "SAMPLE",
+      "controls": [
+        {
+          "param": "Folder",
+          "widget": "knob"
+        },
+        {
+          "param": "Sample",
+          "widget": "knob"
+        },
+        {
+          "param": "Algorithm",
+          "widget": "knob",
+          "overlay": "menu"
+        },
+        {
+          "param": "Volume",
+          "widget": "fader"
+        },
+        {
+          "param": "Start",
+          "widget": "knob"
+        },
+        {
+          "param": "End",
+          "widget": "knob"
+        },
+        {
+          "param": "Speed",
+          "widget": "knob"
+        },
+        {
+          "param": "Pitch",
+          "widget": "knob",
+          "polarity": "bipolar"
+        },
+        {
+          "param": "Threshold",
+          "widget": "knob",
+          "visibleWhen": {
+            "param": "Algorithm",
+            "choice": "Kit/Slice"
+          }
+        },
+        {
+          "param": "Kit Note",
+          "widget": "knob",
+          "visibleWhen": {
+            "param": "Algorithm",
+            "choice": "Kit/Slice"
+          }
+        },
+        {
+          "param": "Grains",
+          "widget": "knob",
+          "visibleWhen": {
+            "param": "Algorithm",
+            "choice": "Granular"
+          }
+        },
+        {
+          "param": "Scatter",
+          "widget": "knob",
+          "visibleWhen": {
+            "param": "Algorithm",
+            "choice": "Granular"
+          }
+        },
+        {
+          "param": "Stretch",
+          "widget": "knob",
+          "visibleWhen": {
+            "param": "Algorithm",
+            "choice": "Paulstr."
+          }
+        },
+        {
+          "param": "Width",
+          "widget": "knob",
+          "visibleWhen": {
+            "param": "Algorithm",
+            "choice": "Paulstr."
+          }
+        },
+        {
+          "param": "Root Note",
+          "widget": "knob"
+        },
+        {
+          "param": "Auto Root",
+          "widget": "switch"
+        }
+      ]
+    },
+    {
+      "name": "ENV/LFO",
+      "controls": [
+        {
+          "param": "Attack",
+          "widget": "fader"
+        },
+        {
+          "param": "Decay",
+          "widget": "fader"
+        },
+        {
+          "param": "Sustain",
+          "widget": "fader"
+        },
+        {
+          "param": "Release",
+          "widget": "fader"
+        },
+        {
+          "param": "LFO Rate",
+          "widget": "knob"
+        },
+        {
+          "param": "LFO Depth",
+          "widget": "knob"
+        },
+        {
+          "param": "LFO Target",
+          "widget": "switch"
+        },
+        {
+          "param": "LFO Shape",
+          "widget": "switch"
+        }
+      ]
+    },
+    {
+      "name": "ARP",
+      "controls": [
+        {
+          "param": "Arp Rate",
+          "widget": "knob",
+          "overlay": "menu"
+        },
+        {
+          "param": "Arp Pattern",
+          "widget": "knob",
+          "overlay": "menu"
+        },
+        {
+          "param": "Arp Octaves",
+          "widget": "knob"
+        },
+        {
+          "param": "Arp Length",
+          "widget": "fader"
+        }
+      ]
+    },
+    {
+      "name": "TAPE",
+      "controls": [
+        {
+          "param": "Exciter",
+          "widget": "knob"
+        },
+        {
+          "param": "Lo-Fi",
+          "widget": "knob"
+        },
+        {
+          "param": "Wobble",
+          "widget": "knob"
+        },
+        "empty"
+      ]
+    },
+    {
+      "name": "FX",
+      "controls": [
+        {
+          "param": "Reverb Send",
+          "widget": "fader"
+        },
+        {
+          "param": "Reverb Size",
+          "widget": "knob"
+        },
+        {
+          "param": "Delay Send",
+          "widget": "fader"
+        },
+        {
+          "param": "Delay Time",
+          "widget": "knob",
+          "visibleWhen": {
+            "param": "Delay Sync",
+            "choice": "Free"
+          }
+        },
+        {
+          "param": "Delay Sync",
+          "widget": "knob",
+          "overlay": "menu"
+        },
+        {
+          "param": "Delay FB",
+          "widget": "knob"
+        },
+        "empty",
+        "empty"
+      ]
+    },
+    {
+      "name": "KEY",
+      "controls": [
+        {
+          "param": "Scale",
+          "widget": "knob",
+          "overlay": "menu"
+        },
+        {
+          "param": "Key Root",
+          "widget": "knob",
+          "overlay": "menu"
+        },
+        {
+          "param": "Octave",
+          "widget": "knob",
+          "polarity": "bipolar"
+        },
+        {
+          "param": "Key Mode",
+          "widget": "switch"
+        },
+        {
+          "param": "Pan",
+          "widget": "knob",
+          "polarity": "bipolar"
+        },
+        {
+          "param": "Bend Range",
+          "widget": "knob"
+        },
+        {
+          "param": "FM-1 Ctrl",
+          "widget": "switch"
+        },
+        "empty"
+      ]
+    }
+  ]
+}
