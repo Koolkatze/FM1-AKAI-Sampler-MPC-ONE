@@ -4,7 +4,9 @@
 
 Sampler, editor de audio y **looper de 16 pistas** para Android. El teléfono ejecuta el motor de audio, la biblioteca y la interfaz; el **M-VAVE FM-1** puede actuar como superficie de control MIDI por **USB**, con botones, teclado y encoders. El motor y la interfaz se encuentran en `engine/`; Android integra ese motor mediante JNI.
 
-> **Versión 0.42.6 (en validación):** recuperación automática de la sesión activa y NEW PROJECT, sin modificar los 16 slots guardados.
+> **Versión 0.42.7 (en validación):** polifonía ampliada por sampler: Melodic, One Shot y Looped 64 voces; Kit 32; Granular 16; Paulstretch 8. Conserva el método de sustituir la voz más antigua cuando se llena el límite.
+
+> **Versión 0.42.6 ([release estable](https://github.com/Koolkatze/fm1-sampler/releases/tag/v0.42.6)):** recuperación automática de la sesión activa y NEW PROJECT, sin modificar los 16 slots guardados.
 
 > **Versión 0.42.5 ([release estable](https://github.com/Koolkatze/fm1-sampler/releases/tag/v0.42.5)):** los seis iconos centrales de HOME se muestran sin etiquetas; se conserva la separación y el acceso directo al metrónomo.
 
@@ -29,12 +31,23 @@ Sampler, editor de audio y **looper de 16 pistas** para Android. El teléfono ej
 
 ## Descargas y compilación
 
-- **Última APK estable:** [Descargar FM1 Sampler 0.42.5 firmada](https://github.com/Koolkatze/fm1-sampler/releases/download/v0.42.5/FM1-Sampler-0.42.5-signed.apk) · [Releases](https://github.com/Koolkatze/fm1-sampler/releases). El ID y certificado permanente se mantienen; no desinstales la APK anterior.
+- **Última APK estable:** [Descargar FM1 Sampler 0.42.6 firmada](https://github.com/Koolkatze/fm1-sampler/releases/download/v0.42.6/FM1-Sampler-0.42.6-signed.apk) · [Releases](https://github.com/Koolkatze/fm1-sampler/releases). Se mantiene el certificado permanente y el ID de paquete; no desinstales la APK anterior.
 - **Código Android:** `android/`; **motor de audio/UI:** `engine/`; **protocolo de hardware:** `PROTOCOL.md`.
 - **Utilidad ADB para backups TAR y proyectos `.fm1p`:** [`tools/FM1_ADB_Recuperacion_0389.py`](https://github.com/Koolkatze/fm1-sampler/blob/feature/16-looper-metronome-monitor/tools/FM1_ADB_Recuperacion_0389.py) y [guía de uso](https://github.com/Koolkatze/fm1-sampler/blob/feature/16-looper-metronome-monitor/docs/ADB_RECUPERACION_0389.md).
 - **Documentación:** [16 pistas + MET v0.40](https://github.com/Koolkatze/fm1-sampler/blob/feature/16-looper-metronome-monitor/docs/FM1_16TRACK_METRONOME_040.md), [resumen técnico y pendientes](https://github.com/Koolkatze/fm1-sampler/blob/feature/16-looper-metronome-monitor/docs/STATUS_040.md), [secuenciador + Tempo Flex v0.39](https://github.com/Koolkatze/fm1-sampler/blob/feature/16-looper-metronome-monitor/docs/FM1_SEQUENCER_039.md), [biblioteca, proyectos y backups](https://github.com/Koolkatze/fm1-sampler/blob/feature/16-looper-metronome-monitor/docs/SAMPLE_LIBRARY.md), [escenas y SONG](https://github.com/Koolkatze/fm1-sampler/blob/feature/16-looper-metronome-monitor/docs/SCENES_AND_SONG.md), [migración](https://github.com/Koolkatze/fm1-sampler/blob/feature/16-looper-metronome-monitor/docs/MIGRACION_SEGURA.md).
 
 Las compilaciones debug de GitHub usan **`com.ferluht.fm1sampler.scenes`**; la variante original usa **`com.ferluht.fm1sampler`**. Son instalaciones con datos privados separados. Las versiones Scenes firmadas con el certificado permanente son compatibles entre sí; las antiguas APK de otras firmas no lo son: **no desinstales una app con proyectos/loops sin haber exportado y verificado una copia de seguridad externa**.
+
+## Polifonía (0.42.7)
+
+| Modo | Voces por sampler |
+|---|---:|
+| Melodic / One Shot / Looped | 64 |
+| Kit | 32 |
+| Granular | 16 |
+| Paulstretch | 8 |
+
+Las voces conservan su envolvente, incluyendo release. Cuando se alcanza el máximo, se mantiene la política original: ocupar la primera voz libre o sustituir la más antigua si no queda ninguna. No se introduce prioridad por volumen o tecla pulsada. Los límites de Granular y Paulstretch acotan el coste DSP; se reservan ocho streams Paulstretch, no 64. El rendimiento real con alta polifonía depende del móvil.
 
 ## Recuperación automática y NEW PROJECT (0.42.6)
 
