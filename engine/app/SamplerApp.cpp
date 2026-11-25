@@ -1324,6 +1324,7 @@ void SamplerApp::requestCheckpoint(bool finishRecording) {
     recoveryRequested_ = true;
     recoveryFinishing_ |= finishRecording;
     if (finishRecording && recordingNow()) endRecording();
+    if (finishRecording && (mic_ == 1 || mic_ == 2)) micSample();
 }
 bool SamplerApp::checkpointPending() const {
     return recoveryRestoring_ || recoveryRequested_ || recoveryWriting_;
@@ -1354,6 +1355,8 @@ void SamplerApp::tickRecovery(uint32_t now) {
     }
     if (recoveryBlocked_) { recoveryRequested_ = false; recoveryFinishing_ = false; return; }
     if (recoveryRestoring_ || recoveryWriting_ || s_.projectOperation() == 3) return;
+    if (recoveryFinishing_ && recordingNow()) endRecording();
+    if (recoveryFinishing_ && (mic_ == 1 || mic_ == 2)) micSample();
     if (recordingNow() || mic_ != 0) return;
     if (!recoveryRequested_ && now - recoveryLastAttempt_ < 3000) return;
     recoveryLastAttempt_ = now;

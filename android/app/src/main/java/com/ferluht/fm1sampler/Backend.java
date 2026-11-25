@@ -107,6 +107,15 @@ public class Backend {
     }
 
     public synchronized void stop() {
+        if (running) {
+            // The audio callback and surface ticker must remain alive until
+            // the final take is closed and its checkpoint has been captured.
+            Native.requestCheckpoint(engine, true);
+            long until = SystemClock.uptimeMillis() + 1800L;
+            while (Native.checkpointPending(engine) && SystemClock.uptimeMillis() < until) {
+                try { Thread.sleep(20); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+            }
+        }
         running = false;
         if (midi != null && midiCallback != null) {
             midi.unregisterDeviceCallback(midiCallback);

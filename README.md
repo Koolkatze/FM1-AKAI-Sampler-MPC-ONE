@@ -2,7 +2,9 @@
 
 Sampler, editor de audio y **looper de 16 pistas** para Android. El teléfono ejecuta el motor de audio, la biblioteca y la interfaz; el **M-VAVE FM-1** puede actuar como superficie de control MIDI por **USB**, con botones, teclado y encoders. El motor y la interfaz se encuentran en `engine/`; Android integra ese motor mediante JNI.
 
-> **Versión 0.42.5 (en validación):** los seis iconos centrales de HOME se muestran sin etiquetas; se conserva la separación y el acceso directo al metrónomo.
+> **Versión 0.42.6 (en validación):** guardado automático de la sesión y recuperación al abrir Android, con botón NEW PROJECT en PROJECT. Conserva los 16 proyectos manuales.
+
+> **Versión 0.42.5 ([release estable](https://github.com/Koolkatze/fm1-sampler/releases/tag/v0.42.5)):** los seis iconos centrales de HOME se muestran sin etiquetas; se conserva la separación y el acceso directo al metrónomo.
 
 > **Versión 0.42.4 ([release estable](https://github.com/Koolkatze/fm1-sampler/releases/tag/v0.42.4)):** icono MET directo en HOME; seis iconos centrales con separación uniforme y alineación inferior de transporte, PROJECT y K1–K4.
 
@@ -14,16 +16,23 @@ Sampler, editor de audio y **looper de 16 pistas** para Android. El teléfono ej
 
 > **Versión 0.42.0 (preview anterior):** edición de pads en directo, MET sincronizado con PLAY/STOP y Correct Tempo; [notas 0.42](docs/RELEASE_NOTES_042.md). Las versiones actuales pasan las verificaciones automatizadas antes de publicarse.
 
-> **Versión 0.41.0 (preview anterior):** rama `feature/16-looper-metronome-monitor`. **PROJECT, LOOP y SONG ahora tienen pantallas independientes a pantalla completa**, 12 pads con 16 pistas de looper y botones directos para escoger cualquiera de las 8 escenas del secuenciador. Los pads y el orden SONG se guardan exclusivamente en el proyecto `.fm1p` elegido; una apertura nueva muestra LOOP/SONG vacíos. Se mantienen **16 pistas + MET** y el tema Light/Dark. La monitorización del metrónomo por FM-1 es experimental y **no se ha validado físicamente**; la APK no flashea el firmware.
+> **Versión 0.41.0 (preview anterior):** rama `feature/16-looper-metronome-monitor`. **PROJECT, LOOP y SONG ahora tienen pantallas independientes a pantalla completa**, 12 pads con 16 pistas de looper y botones directos para escoger cualquiera de las 8 escenas del secuenciador. Los pads y el orden SONG se guardan exclusivamente en el proyecto `.fm1p` elegido; una apertura nueva sin sesión automática muestra LOOP/SONG vacíos. Se mantienen **16 pistas + MET** y el tema Light/Dark. La monitorización del metrónomo por FM-1 es experimental y **no se ha validado físicamente**; la APK no flashea el firmware.
 
 ## Descargas y compilación
 
-- **Última APK estable:** [Descargar FM1 Sampler 0.42.4 firmada](https://github.com/Koolkatze/fm1-sampler/releases/download/v0.42.4/FM1-Sampler-0.42.4-signed.apk) · [Releases](https://github.com/Koolkatze/fm1-sampler/releases) · [Validación](https://github.com/Koolkatze/fm1-sampler/actions/runs/45494804901). Las actualizaciones mantienen el ID y certificado permanente. Guarda SAVE PROJECT y SAVE BACKUP antes de actualizar; no desinstales la APK anterior.
+- **Última APK estable:** [Descargar FM1 Sampler 0.42.5 firmada](https://github.com/Koolkatze/fm1-sampler/releases/download/v0.42.5/FM1-Sampler-0.42.5-signed.apk) · [Releases](https://github.com/Koolkatze/fm1-sampler/releases). Las actualizaciones mantienen el ID y certificado permanente; no desinstales la APK anterior.
 - **Código Android:** `android/`; **motor de audio/UI:** `engine/`; **protocolo de hardware:** `PROTOCOL.md`.
 - **Utilidad ADB para backups TAR y proyectos `.fm1p`:** [`tools/FM1_ADB_Recuperacion_0389.py`](tools/FM1_ADB_Recuperacion_0389.py) y [guía de uso](docs/ADB_RECUPERACION_0389.md).
 - **Documentación:** [16 pistas + MET v0.40](docs/FM1_16TRACK_METRONOME_040.md), [resumen técnico y pendientes](docs/STATUS_040.md), [secuenciador + Tempo Flex v0.39](docs/FM1_SEQUENCER_039.md), [biblioteca, proyectos y backups](docs/SAMPLE_LIBRARY.md), [escenas y SONG](docs/SCENES_AND_SONG.md), [migración](docs/MIGRACION_SEGURA.md).
 
 Las compilaciones debug de GitHub usan **`com.ferluht.fm1sampler.scenes`**; la variante original usa **`com.ferluht.fm1sampler`**. Son instalaciones con datos privados separados. Las versiones Scenes firmadas con el certificado permanente son compatibles entre sí; las antiguas APK de otras firmas no lo son: **no desinstales una app con proyectos/loops sin haber exportado y verificado una copia de seguridad externa**.
+
+## Recuperación automática y NEW PROJECT (0.42.6)
+
+- Android conserva la sesión de trabajo en `PROYECTOS/CURRENT_SESSION.fm1p`, separada de los 16 slots manuales. Se comprueban cambios cada 3 segundos y se solicita un checkpoint al salir de la app; durante PLAY se actualiza periódicamente la posición. La captura y escritura se realizan en segundo plano y el archivo anterior se conserva hasta el reemplazo atómico del nuevo.
+- Al abrir de nuevo se recupera la última sesión completada: clips, muestras, efectos, tempo, pads, arreglo, patrones, pista y página activa. También se recupera el modo de reproducción almacenado. En la primera apertura tras instalar la actualización no existe todavía una sesión automática.
+- **PROJECT → NEW PROJECT → CONFIRM NEW PROJECT** crea un espacio vacío. Conserva todos los slots guardados, WAV, packs y biblioteca; para conservar una copia de la sesión anterior usa SAVE PROJECT antes de confirmar. LOAD PROJECT sustituye la sesión activa por el slot elegido.
+- Una grabación que sigue en curso, un cierre brusco entre checkpoints, un fallo de almacenamiento o un archivo superior al límite de 512 MiB pueden impedir recuperar los cambios más recientes; no es una garantía de pérdida cero. SAVE PROJECT y SAVE BACKUP siguen siendo recomendables. La restauración de un archivo dañado no lo sobrescribe automáticamente.
 
 ## Edición de pads en directo (nueva actualización)
 
@@ -39,7 +48,7 @@ Las compilaciones debug de GitHub usan **`com.ferluht.fm1sampler.scenes`**; la v
 - **LOOP / SONG MODE** abre otra pantalla a ancho completo. Desde allí elige **COMPOSE**, **LOOP MODE**, **SONG MODE**, **PROJECT** o **HOME**. No hay columnas superpuestas.
 - **LOOP:** 12 pads grandes C1–B1, 16 botones T1–T16 en dos filas, botones **OFF + SC 1–SC 8** para enlazar **una escena completa del secuenciador** (sus 8 pistas y pasos) al pad seleccionado, además de las pistas de audio elegidas. **SAVE PAD/REPLACE PAD**, **LAUNCH**, **EXIT LOOP** y **DELETE PAD** mantienen el comportamiento original y las confirmaciones.
 - **SONG:** pads, orden del arreglo con hasta 8 pasos grandes visibles por página, **+ ADD PAD**, **REMOVE**, **MOVE LEFT/RIGHT**, **PLAY SONG**, **STOP SONG** y **EXPORT SONG**. Al pulsar EXPORT SONG, el botón se vuelve naranja y dice **EXPORTING** durante el renderizado y la publicación en Downloads; no admite pulsaciones duplicadas. Cuando el WAV se publica correctamente, muestra **SONG EXPORTED** en naranja hasta una nueva exportación o la carga de otro proyecto. Si falla, muestra **EXPORT FAILED** y permite reintentar.
-- **Al abrir la APK sin cargar proyecto:** los pads de LOOP y el orden de SONG aparecen **vacíos**, aunque anteriormente hubieras editado otros. **Al cargar un proyecto distinto:** se restauran exclusivamente los pads y el arreglo contenidos en ese archivo, o siguen vacíos si no existen. Las fuentes de muestras y los parámetros de la app conservan su comportamiento de inicio.
+- **Al abrir la APK (desde 0.42.6):** se recupera la sesión automática si existe; NEW PROJECT inicia los pads de LOOP y SONG vacíos. **Al cargar un proyecto distinto:** se restauran exclusivamente los pads y el arreglo contenidos en ese archivo, o siguen vacíos si no existen. Las fuentes de muestras y los parámetros de la app conservan su comportamiento de inicio.
 - **Guardado:** usa **SAVE PROJECT** en la ranura deseada para conservar escenas, canción, muestras, loops, secuenciador y ajustes. El antiguo archivo global \`fm1_scenes.dat\` ya no se carga ni se sobreescribe automáticamente; si existía, se conserva intacto como posible copia de recuperación.
 
 **Actualización segura:** la versión 0.41 mantiene el ID de la app Scenes y la misma firma de los anteriores paquetes GitHub, con **versionCode 65**. Para evitar perder acceso a escenas antiguas guardadas solamente en \`fm1_scenes.dat\`, **convierte ese trabajo en un SAVE PROJECT usando 0.40 ANTES de actualizar**. No desinstales la app y exporta siempre SAVE BACKUP. Esta actualización es de Android; no certifica el firmware físico del FM-1.

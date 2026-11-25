@@ -14,6 +14,7 @@ public:
     void setSize(float w, float h, float topInset, float bottomInset) { W_ = w; H_ = h; top_ = topInset; bottom_ = bottomInset; }
     void setLink(bool midi, bool usbAudio) { linkMidi_ = midi; linkAudio_ = usbAudio; }
     void frame(uint32_t nowMs);
+    int recoveryView() const { return sheetOpen_ ? 4 : editor_ ? 3 : performanceOpen_ ? 2 : projectOpen_ ? 1 : 0; }
     void pipFrame(uint32_t nowMs);
     void refreshBrowserAfterImport() { if (sheetOpen_) buildBrowserRows(); }
     void openProject(bool on) { projectOpen_ = on; if (on) performanceOpen_ = false; }
@@ -77,7 +78,7 @@ private:
     Hit active_{};
     bool haveActive_ = false;
     uint32_t now_ = 0;
-    uint32_t seenHomeNavigation_ = 0;
+    uint32_t seenHomeNavigation_ = 0, seenRecoveryNavigation_ = 0, newProjectConfirmUntil_ = 0;
     Session::Status st_{};
     bool linkMidi_ = false, linkAudio_ = false, sheetOpen_ = false, editor_ = false,
          projectOpen_ = false, performanceOpen_ = false, tempoOpen_ = false;

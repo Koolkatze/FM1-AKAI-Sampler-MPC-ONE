@@ -2608,7 +2608,7 @@ bool Session::saveProject(int slot, std::vector<uint8_t> meta,
     return true;
 }
 bool Session::loadProject(int slot) {
-    if (slot < 0 || slot > kRecoverySlot || !projectExists(slot) || d->recoveryOp.load() == 1) return false;
+    if (slot < 0 || slot > kRecoverySlot || !projectExists(slot) || (slot == kRecoverySlot && d->recoveryOp.load() == 1)) return false;
     int state = d->projectOp.load();
     while (state != 1 && state != 3) {
         if (d->projectOp.compare_exchange_weak(state, 3)) break;

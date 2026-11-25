@@ -62,6 +62,7 @@ std::string SamplerUI::fit(const std::string& s, float width, float size) const 
 }
 void SamplerUI::touch(int action, float x, float y, uint32_t now) {
     now_ = now;
+    if (app_.recoveryTransition()) { haveActive_ = false; return; }
     if (action == 0) {
         haveActive_ = false;
         for (size_t i = hits_.size(); i-- > 0;) if (hits_[i].r.has(x, y)) { active_ = hits_[i]; haveActive_ = true; if (active_.down) active_.down(x, y); break; }
@@ -95,11 +96,24 @@ void SamplerUI::frame(uint32_t now) {
         editor_ = false;
         tempoOpen_ = false;
     }
+    if (seenRecoveryNavigation_ != app_.recoveryNavigationSerial()) {
+        seenRecoveryNavigation_ = app_.recoveryNavigationSerial();
+        const int view = app_.restoredView();
+        sheetOpen_ = view == 4; editor_ = view == 3; performanceOpen_ = view == 2;
+        projectOpen_ = view == 1; tempoOpen_ = false; projectSlotsMode_ = 0;
+        projectConfirmSlot_ = -1; newProjectConfirmUntil_ = 0; haveActive_ = false;
+        if (sheetOpen_) { app_.refreshLibrary(); buildBrowserRows(); }
+    }
+    app_.setRecoveryView(recoveryView());
     app_.setLibraryBrowserActive(sheetOpen_);
     st_ = app_.status();
     syncColors();
     ops_.clear(); hits_.clear();
     rrect({0, 0, W_, H_}, 0, BG);
+    if (app_.recoveryTransition()) {
+        text(W_ / 2, H_ / 2, 17, ACCENT, "OPENING PROJECT...", 1, true);
+        return;
+    }
     const float tb = 44, left = 176, right = 252;
     if (app_.sequencerMode()) {
         sequencerView();
@@ -1246,7 +1260,7 @@ void SamplerUI::projectSheet() {
     const bool hasClip = st_.track_has_clip[t], any = app_.loopExists();
     const bool armed = clearArmed_ && now_ < clearArmed_;
     const std::string trackName = "TRACK " + std::to_string(t + 1);
-    // Seven roomy menu actions, on a separate grid below project management.
+    // Eight roomy menu actions, on a separate grid below project management.
     // Cards use the original theme tokens and never overlap their neighbors.
     auto action = [&](int i, const std::string& heading, const std::string& hint,
                       bool enabled, bool attention, std::function<void()> onClick) {
@@ -1280,8 +1294,15 @@ void SamplerUI::projectSheet() {
                auto knobs = app_.knobs(SamplerApp::P_SAVE);
                knobs[1].step(knobs[1].norm > .5f ? -1 : 1);
            });
+    const bool newArmed = newProjectConfirmUntil_ && now_ < newProjectConfirmUntil_;
+    action(7, newArmed ? "CONFIRM NEW PROJECT" : "NEW PROJECT", newArmed ? "Discard current unsaved session" : "Start empty / saved projects kept",
+           true, newArmed, [this, newArmed] {
+               if (newArmed) {
+                   if (app_.newFullProject()) { newProjectConfirmUntil_ = 0; projectOpen_ = false; }
+               } else newProjectConfirmUntil_ = now_ + 5000;
+           });
     text(margin + 4, H_ - 20, 10, DIM,
-         "Projects store COMPOSE + LOOPS + SONG + all 8 SEQ scenes + audio + FX", 0);
+         "Current session auto-saves / SAVE PROJECT keeps a separate named copy", 0);
 }
 
 void SamplerUI::performanceSheet() {

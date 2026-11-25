@@ -1690,6 +1690,76 @@ int main() {
         float stopped = 0.f; for (float x : pcm) stopped = std::max(stopped, std::fabs(x));
         CHECK(stopped < .000001f, "STOP gates the metronome immediately");
     }
+    {   // Two separate engine instances emulate app/process restart.
+        const std::string dir = "/tmp/fm1sampler_t2/recovery";
+        std::filesystem::create_directories(dir);
+        const std::string samples = std::string(getenv("HOME")) + "/fm1-sampler/samples";
+        auto pump = [&](Session& session, SamplerApp& a, uint32_t& ms, int blocks) {
+            std::array<float, 512> pcm{};
+            for (int k = 0; k < blocks; ++k) {
+                session.process(pcm.data(), nullptr, 256);
+                ms += 6; a.tick(ms);
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        };
+        {
+            Session session(sr); session.setDataDir(dir); session.setSampleDir(samples);
+            SamplerApp a(session, [](const uint8_t*, size_t) {});
+            uint32_t ms = 0;
+            pump(session, a, ms, 400);
+            session.freeRecord(0, true); pump(session, a, ms, 10);
+            a.playNote(60, true); pump(session, a, ms, 180);
+            a.playNote(60, false); session.freeRecord(0, false); pump(session, a, ms, 20);
+            CHECK(a.status().track_has_clip[0], "recovery test has a recorded loop");
+            session.play(false); pump(session, a, ms, 180);
+            a.enterSequencer(); a.selectSequencerTrack(2); a.sequencerToggleStep(3);
+            a.exitSequencer(); a.selectTrack(3); a.setCorrectTempoBpm(147.83f);
+            session.captureScene(0, 1, 0); pump(session, a, ms, 10);
+            a.setSongMode(true); a.selectScene(0); a.songAdd(); pump(session, a, ms, 20);
+            a.setRecoveryView(2);
+            CHECK(a.saveFullProject(0), "manual project remains separately saved");
+            for (int k = 0; k < 120 && a.fullProjectOperation() == 1; ++k) pump(session, a, ms, 10);
+            CHECK(a.fullProjectOperation() == 2, "manual project file is committed");
+            a.enableRecovery(); a.requestCheckpoint();
+            for (int k = 0; k < 160 && a.checkpointPending(); ++k) pump(session, a, ms, 10);
+            CHECK(session.recoveryOperation() == 2 && std::filesystem::is_regular_file(dir + "/CURRENT_SESSION.fm1p"),
+                  "automatic recovery archive committed separately");
+            CHECK(std::filesystem::is_regular_file(dir + "/project_1.fm1p"),
+                  "checkpoint does not replace saved project");
+        }
+        {
+            Session session(sr); session.setDataDir(dir); session.setSampleDir(samples);
+            SamplerApp a(session, [](const uint8_t*, size_t) {});
+            uint32_t ms = 0; a.enableRecovery();
+            for (int k = 0; k < 160 && a.recoveryTransition(); ++k) pump(session, a, ms, 10);
+            pump(session, a, ms, 20);
+            CHECK(!a.recoveryTransition() && a.status().track_has_clip[0] && a.status().sceneMask == 1 &&
+                  a.songOrder().size() == 1 && a.songOrder()[0] == 0 &&
+                  a.sequencerHit(2, 3).velocity > 0 && a.track() == 3 && a.restoredView() == 2 &&
+                  std::fabs(a.correctedTempoBpm() - 147.83f) < .02f,
+                  "cold start restores loop, pad, SONG, sequencer, track, tempo and screen");
+            SamplerUI u(a); u.setSize(860, 400, 0, 0);
+            u.frame(ms); u.openProject(true); u.frame(ms);
+            bool newButton = false;
+            for (const auto& op : u.ops()) if (op.type == UiOp::TEXT && op.text == "NEW PROJECT") newButton = true;
+            CHECK(newButton, "PROJECT offers NEW PROJECT");
+            CHECK(a.newFullProject(), "NEW PROJECT writes empty recovery archive before reset");
+            for (int k = 0; k < 160 && a.recoveryTransition(); ++k) pump(session, a, ms, 10);
+            pump(session, a, ms, 20);
+            CHECK(!a.recoveryTransition() && a.status().sceneMask == 0 && a.songOrder().empty() &&
+                  !a.status().track_has_clip[0] && !a.sequencerHit(2, 3).velocity &&
+                  a.fullProjectExists(0), "NEW PROJECT clears only current session, not saved slots");
+        }
+        {
+            Session session(sr); session.setDataDir(dir); session.setSampleDir(samples);
+            SamplerApp a(session, [](const uint8_t*, size_t) {});
+            uint32_t ms = 0; a.enableRecovery();
+            for (int k = 0; k < 160 && a.recoveryTransition(); ++k) pump(session, a, ms, 10);
+            pump(session, a, ms, 20);
+            CHECK(!a.recoveryTransition() && !a.status().track_has_clip[0] && a.songOrder().empty() &&
+                  a.fullProjectExists(0), "next cold start after NEW PROJECT stays empty");
+        }
+    }
     printf("%s (%d failures)\n", fails ? "FAILED" : "ALL OK", fails);
     return fails ? 1 : 0;
 }

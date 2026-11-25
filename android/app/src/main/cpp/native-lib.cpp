@@ -35,6 +35,7 @@ struct Engine : public oboe::AudioStreamDataCallback, public oboe::AudioStreamEr
         session.setDataDir(dataDir); session.setSampleDir(sampleDir);   // before the app: it reads the library and loads the first samples
         app = std::make_unique<SamplerApp>(session, [this](const uint8_t* m, size_t n) { out.insert(out.end(), m, m + n); });
         ui = std::make_unique<SamplerUI>(*app);
+        app->enableRecovery();
     }
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream* s, void* data, int32_t frames) override {
         Denormals::enableOnThisThread();
@@ -152,6 +153,7 @@ FN(void, midiIn)(JNIEnv* env, jclass, jlong h, jbyteArray a, jint off, jint n) {
     if (!d) return;
     auto& e = *E(h);
     std::lock_guard<std::mutex> l(e.surfaceMtx);
+    if (e.app->recoveryTransition()) { env->ReleaseByteArrayElements(a, d, JNI_ABORT); return; }
     for (int i = off; i < off + n; i++) {
         const uint8_t s = (uint8_t)d[i];
         if (s >= 0xf8) continue;                        // real time (clock, active sensing): may come anywhere, even inside a SysEx
@@ -178,6 +180,14 @@ FN(jbyteArray, tick)(JNIEnv* env, jclass, jlong h, jlong nowMs) {
     if (!e.out.empty()) env->SetByteArrayRegion(r, 0, (jsize)e.out.size(), (const jbyte*)e.out.data());
     e.out.clear();
     return r;
+}
+FN(void, requestCheckpoint)(JNIEnv*, jclass, jlong h, jboolean finishRecording) {
+    auto& e = *E(h); std::lock_guard<std::mutex> l(e.surfaceMtx);
+    e.app->requestCheckpoint(finishRecording != JNI_FALSE);
+}
+FN(jboolean, checkpointPending)(JNIEnv*, jclass, jlong h) {
+    auto& e = *E(h); std::lock_guard<std::mutex> l(e.surfaceMtx);
+    return e.app->checkpointPending();
 }
 // the phone UI asked for the disk picker (LOAD FILE FROM DISK)
 FN(jboolean, wantFile)(JNIEnv*, jclass, jlong h) { auto& e = *E(h); std::lock_guard<std::mutex> l(e.surfaceMtx); return e.app->wantFile(); }
@@ -238,7 +248,7 @@ FN(jboolean, backupReady)(JNIEnv*, jclass, jlong h) {
     auto& e = *E(h);
     std::lock_guard<std::mutex> l(e.surfaceMtx);
     const int op = e.session.projectOperation();
-    return !e.app->recordingNow() && e.app->micState() == 0 && op != 1 && op != 3;
+    return !e.app->recordingNow() && e.app->micState() == 0 && op != 1 && op != 3 && e.session.recoveryOperation() != 1;
 }
 FN(void, refreshLibrary)(JNIEnv*, jclass, jlong h) {
     auto& e = *E(h); std::lock_guard<std::mutex> l(e.surfaceMtx);

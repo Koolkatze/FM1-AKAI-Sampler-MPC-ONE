@@ -97,6 +97,14 @@ public class SamplerActivity extends Activity {
         if (samplerView != null) samplerView.setPictureInPicture(enabled);
         if (!enabled) hideSystemBars();
     }
+    @Override protected void onPause() {
+        if (backend != null) Native.requestCheckpoint(backend.engine, false);
+        super.onPause();
+    }
+    @Override protected void onStop() {
+        if (backend != null) Native.requestCheckpoint(backend.engine, false);
+        super.onStop();
+    }
     @Override protected void onDestroy() {
         if (isFinishing() && backend != null) {
             backend.onFileRequest = null;
