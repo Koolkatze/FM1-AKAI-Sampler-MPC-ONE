@@ -1,5 +1,6 @@
 // Host tests of the sampler app: every algorithm sounds, LFO targets, stretch/pitch, tape knobs, arp, loop speed, library, import. Exit code 1 on failure.
 #include <Session.h>
+#include <Sampler.h>
 #include <SamplerApp.h>
 #include <Common.h>
 #include <Stretch.h>
@@ -1759,6 +1760,41 @@ int main() {
             CHECK(!a.recoveryTransition() && !a.status().track_has_clip[0] && a.songOrder().empty() &&
                   a.fullProjectExists(0), "next cold start after NEW PROJECT stays empty");
         }
+    }
+    {   // Expanded voice pools, unchanged oldest-first voice stealing.
+        const std::string path = "/tmp/fm1sampler_t2/polyphony.wav";
+        std::vector<float> tone((size_t)sr * 8);
+        for (size_t i = 0; i < tone.size(); i += 2)
+            tone[i] = tone[i + 1] = .25f * std::sin(2. * 3.141592653589793 * 220. * (i / 2) / sr);
+        CHECK(writeWav16(path, tone, sr), "polyphony fixture written");
+        Sampler poly(sr);
+        CHECK(poly.load(path), "polyphony fixture loaded");
+        const int limits[] = {64, 64, 64, 32, 16, 8};
+        for (int mode = 0; mode < Sampler::kModes; ++mode) {
+            poly.allOff(); poly.setMode(mode);
+            CHECK(poly.voiceLimit() == limits[mode], "mode %d voice limit is %d", mode, limits[mode]);
+            for (int n = 0; n < limits[mode]; ++n) poly.noteOn(60, 100);
+            CHECK(poly.activeVoiceCount() == limits[mode], "mode %d supports all %d simultaneous voices", mode, limits[mode]);
+            poly.noteOn(60, 100);
+            CHECK(poly.activeVoiceCount() == limits[mode], "mode %d retains bounded oldest-first allocation", mode);
+        }
+        poly.allOff(); poly.setMode(Sampler::MELODIC);
+        poly.setEnv(.002f, .1f, .8f, 5.f);
+        poly.noteOn(60, 100);
+        std::array<float, 512> pcm{};
+        poly.render(pcm.data(), 256);
+        poly.noteOff(60);
+        for (int i = 1; i < 64; ++i) poly.noteOn(60 + i % 12, 100);
+        std::array<float, 64> positions{}, levels{};
+        CHECK(poly.voicePositions(positions.data(), 64, levels.data()) == 64 && positions[0] > 0.f && levels[0] > .1f,
+              "first released piano note survives 63 additional notes");
+        poly.noteOn(72, 100);
+        CHECK(poly.voicePositions(positions.data(), 64, levels.data()) == 64 && positions[0] == 0.f,
+              "65th note replaces oldest voice exactly as in previous allocator");
+        poly.render(pcm.data(), 256);
+        bool finite = true;
+        for (float x : pcm) finite &= std::isfinite(x);
+        CHECK(finite, "64-voice melodic render produces finite PCM");
     }
     printf("%s (%d failures)\n", fails ? "FAILED" : "ALL OK", fails);
     return fails ? 1 : 0;
